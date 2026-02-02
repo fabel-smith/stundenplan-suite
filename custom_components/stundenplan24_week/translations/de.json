@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stundenplan24 Week",
+        "description": "Zugangsdaten für Stundenplan24.",
+        "data": {
+          "school_id": "Schul-ID",
+          "username": "Benutzername",
+          "password": "Passwort",
+          "target": "Klasse (z. B. 05a)",
+          "show_room": "Raum anzeigen",
+          "show_teacher": "Lehrer anzeigen"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen",
+        "data": {
+          "show_room": "Raum anzeigen",
+          "show_teacher": "Lehrer anzeigen"
+        }
+      }
+    }
+  }
+}
