@@ -1,8 +1,6 @@
 {
   "domain": "stundenplan24_week",
   "name": "Stundenplan24 Week",
-  "version": "0.1.0",
-  "config_flow": true,
-  "iot_class": "cloud_polling",
-  "requirements": []
+  "version": "0.1.1",
+  "config_flow": true
 }

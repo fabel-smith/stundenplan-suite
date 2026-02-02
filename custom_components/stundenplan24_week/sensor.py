@@ -13,11 +13,11 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([StundenplanWeekSensor(coordinator, entry)], True)
+    coord = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([SPlanWeekSensor(coord, entry)], True)
 
 
-class StundenplanWeekSensor(CoordinatorEntity):
+class SPlanWeekSensor(CoordinatorEntity):
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._entry = entry
@@ -35,41 +35,41 @@ class StundenplanWeekSensor(CoordinatorEntity):
     def extra_state_attributes(self) -> dict:
         data = self.coordinator.data or {}
 
-        show_room = self._entry.options.get("show_room", True)
-        show_teacher = self._entry.options.get("show_teacher", False)
+        rows_raw = data.get("rows", [])
+        rows_ha: list[dict] = []
 
-        days = data.get("days") or []
+        def first_or_empty(val: str) -> str:
+            if not val:
+                return ""
+            parts = [p.strip() for p in val.split("/") if p.strip()]
+            return parts[0] if parts else ""
 
-        weekday_map = {
-            "Montag": "Mo",
-            "Dienstag": "Di",
-            "Mittwoch": "Mi",
-            "Donnerstag": "Do",
-            "Freitag": "Fr",
+        for row in rows_raw:
+            cells = row.get("cells", [])
+
+            start = (row.get("start", "") or "").strip()
+            end = (row.get("end", "") or "").strip()
+            base_time = (row.get("time", "") or "").strip()
+
+            # Karte kann Start/Ende aus "time" lesen – wir liefern es kombiniert
+            if start and end:
+                time_str = f"{base_time} {start}-{end}".strip()
+            else:
+                time_str = base_time
+
+            rows_ha.append(
+                {
+                    "time": time_str,
+                    "Mo": first_or_empty(cells[0]) if len(cells) > 0 else "",
+                    "Di": first_or_empty(cells[1]) if len(cells) > 1 else "",
+                    "Mi": first_or_empty(cells[2]) if len(cells) > 2 else "",
+                    "Do": first_or_empty(cells[3]) if len(cells) > 3 else "",
+                    "Fr": first_or_empty(cells[4]) if len(cells) > 4 else "",
+                }
+            )
+
+        return {
+            "rows": rows_raw,
+            "meta": data.get("meta", {}),
+            "rows_ha": rows_ha,
         }
-
-        by_hour: dict[int, dict] = {}
-
-        def fmt_cell(fach: str, raum: str, lehrer: str, info: str) -> str:
-            fach = (fach or "").strip()
-            raum = (raum or "").strip()
-            lehrer = (lehrer or "").strip()
-            info = (info or "").strip()
-
-            extras = []
-            if show_room and raum:
-                extras.append(raum)
-            if show_teacher and lehrer:
-                extras.append(lehrer)
-
-            cell = fach
-            if cell and extras:
-                cell = f"{cell} ({' · '.join(extras)})"
-
-            if info and (fach == "" or fach.upper() == "AUSFALL"):
-                cell = (cell + " — " if cell else "") + info
-
-            return cell
-
-        for day in days:
-            date_label = (day.get("da_
