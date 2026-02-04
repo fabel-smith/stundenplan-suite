@@ -39,6 +39,9 @@ class SPlanWeekSensor(CoordinatorEntity):
         rows_ha: list[dict] = []
 
         def first_or_empty(val: str) -> str:
+            """
+            Nimmt nur den ersten Kurs aus "A / B / C", behält aber ggf. \nInfo-Zeilen.
+            """
             if not val:
                 return ""
             parts = [p.strip() for p in val.split("/") if p.strip()]
@@ -47,11 +50,11 @@ class SPlanWeekSensor(CoordinatorEntity):
         for row in rows_raw:
             cells = row.get("cells", [])
 
-            start = (row.get("start", "") or "").strip()
-            end = (row.get("end", "") or "").strip()
-            base_time = (row.get("time", "") or "").strip()
+            start = row.get("start", "") or ""
+            end = row.get("end", "") or ""
+            base_time = row.get("time", "") or ""
 
-            # Karte kann Start/Ende aus "time" lesen – wir liefern es kombiniert
+            # Karte parst Start/Ende aus "time" (08:10-08:55) -> daher kombinieren
             if start and end:
                 time_str = f"{base_time} {start}-{end}".strip()
             else:

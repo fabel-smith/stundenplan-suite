@@ -1,101 +1,85 @@
 from __future__ import annotations
 
-import re
-from xml.etree import ElementTree as ET
-
-DAYS = ["Mo", "Di", "Mi", "Do", "Fr"]
-DAY_NUM = {"Mo": 1, "Di": 2, "Mi": 3, "Do": 4, "Fr": 5}
+from typing import List, Tuple
+import xml.etree.ElementTree as ET
 
 
-def _norm(s: str) -> str:
-    return (s or "").replace("\u00a0", " ").strip()
-
-
-def _text(node: ET.Element, *paths: str) -> str:
-    for p in paths:
-        el = node.find(p)
-        if el is not None and el.text:
-            t = _norm(el.text)
-            if t:
-                return t
-    return ""
-
-
-def _int(node: ET.Element, *paths: str) -> int:
-    for p in paths:
-        t = _text(node, p)
-        if t.isdigit():
-            return int(t)
-    return 0
-
-
-def match_class(plkl: str, target: str) -> bool:
-    """
-    Sehr strikt:
-    - exact match: 05a
-    - oder in Listen: 05a/05b, 05a,05b
-    """
-    if not plkl or not target:
-        return False
-
-    plkl = plkl.replace("\u00a0", " ").strip().lower()
-    target = target.strip().lower()
-
-    # exakt
-    if plkl == target:
-        return True
-
-    # split an typischen Trennern
-    parts = re.split(r"[,\s/;|]+", plkl)
-    return target in parts
-
+def _txt(el) -> str:
+    if el is None or el.text is None:
+        return ""
+    return el.text.strip()
 
 
 def parse_plan_klassen_xml(
     xml_text: str,
     target_class: str,
-    show_room: bool,
-    show_teacher: bool,
-    days: list[str] = DAYS,
-) -> list[dict]:
+    show_room: bool = True,
+    show_teacher: bool = False,
+) -> List[Tuple[int, str, str, str, str, str]]:
     """
-    Erwartet PlanKlYYYYMMDD.xml (mobile) oder ähnliches.
-    Ergebnis: rows im Card-Format:
-      - Unterricht: {time, start, end, cells:[..]}
+    Returns list of tuples:
+      (stunde:int, fach_plus_info:str, lehrer:str, raum:str, start:str, end:str)
+
+    Wichtig:
+    - Info aus <If> wird IMMER als zweite Zeile an "fach" angehängt (wenn vorhanden),
+      damit wir es später sauber formatieren können (Zeilenumbrüche, Markierung etc.).
     """
-    root = ET.fromstring(xml_text)
+    out: List[Tuple[int, str, str, str, str, str]] = []
 
-    # wir suchen Stunden/Einträge; je nach Export leicht unterschiedlich
-    # häufig: <Std>...<St>1</St><Fa>DE</Fa><Le>MU</Le><Ra>139</Ra><Kl>05a</Kl>...
-    std_nodes = root.findall(".//Std")
-    if not std_nodes:
-        return []
+    if not xml_text:
+        return out
 
-    # Sammeln: (day, hour) -> (fach, lehrer, raum, start, end)
-    # Mobile XML ist oft tagesbezogen => day ist implizit; wir setzen es anhand des Date-DOW später
-    # Für Wochenansicht machen wir erstmal: du rufst 5 Tage ab und mergst (kommt im Coordinator)
-    out = {}  # hour -> placeholder, wird im Coordinator pro Tag befüllt
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return out
 
-    # nur Stunden, die zur Zielklasse gehören
-    lessons = []
-    for std in std_nodes:
-        st = _int(std, "St", "PlSt")
-        if st <= 0:
+    tclass = (target_class or "").strip()
+    if not tclass:
+        return out
+
+    kl_node = None
+    for kl in root.findall(".//Klassen/Kl"):
+        kurz = _txt(kl.find("Kurz"))
+        if kurz == tclass:
+            kl_node = kl
+            break
+
+    if kl_node is None:
+        return out
+
+    for std in kl_node.findall(".//Pl/Std"):
+        st_txt = _txt(std.find("St"))
+        try:
+            stunde = int(st_txt)
+        except Exception:
             continue
 
-        kl = _text(std, "Kl", "PlKl")
-        if kl and target_class and not match_class(kl, target_class):
+        start = _txt(std.find("Beginn"))
+        end = _txt(std.find("Ende"))
+
+        fach = _txt(std.find("Fa"))
+        lehrer = _txt(std.find("Le"))
+        raum = _txt(std.find("Ra"))
+        info = _txt(std.find("If"))
+
+        fach = (fach or "").strip()
+        info = (info or "").strip()
+
+        # Fach ggf. leer -> Info als Fach
+        if not fach and info:
+            fach = info
+            info = ""
+
+        # Wenn beides leer ist: ignorieren
+        if not fach and not info:
             continue
 
-        fach = _text(std, "Fa", "PlFa")
-        lehrer = _text(std, "Le", "PlLe")
-        raum = _text(std, "Ra", "PlRa")
+        # Info immer als 2. Zeile anhängen (wenn vorhanden)
+        fach_plus = fach
+        if info and info not in fach_plus:
+            fach_plus = f"{fach_plus}\n{info}".strip()
 
-        start = _text(std, "Beginn", "Be", "Start", "PlBe")  # je nach XML
-        end = _text(std, "Ende", "En", "End", "PlEn")
+        out.append((stunde, fach_plus, lehrer, raum, start, end))
 
-        lessons.append((st, fach, lehrer, raum, start, end))
-
-    # wir geben die rohen Lessons zurück; Merging passiert im Coordinator
-    # Format: list of tuples
-    return lessons
+    return out

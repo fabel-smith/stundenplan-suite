@@ -6,6 +6,7 @@ from pathlib import Path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.components import persistent_notification
 
 from .const import DOMAIN
 from .coordinator import SPlanCoordinator
@@ -34,7 +35,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # ✅ Card automatisch nach /config/www/... kopieren
+    # Card nach /config/www kopieren
     await _ensure_card_is_available_in_www(hass)
 
     return True
@@ -51,9 +52,6 @@ async def _ensure_card_is_available_in_www(hass: HomeAssistant) -> None:
     """
     Kopiert die mitgelieferte Card-JS nach:
       /config/www/stundenplan-card/stundenplan-card.js
-
-    => nutzbar als:
-      /local/stundenplan-card/stundenplan-card.js
     """
     integration_dir = Path(__file__).resolve().parent
     src = integration_dir / "www" / "stundenplan-card.js"
@@ -86,7 +84,8 @@ async def _ensure_card_is_available_in_www(hass: HomeAssistant) -> None:
 
     if changed:
         _LOGGER.info("Stundenplan-Card bereitgestellt: %s", dst)
-        hass.components.persistent_notification.async_create(
+        persistent_notification.async_create(
+            hass,
             title="Stundenplan Card bereit",
             message=(
                 "Die Stundenplan-Card wurde nach /config/www kopiert.\n\n"
