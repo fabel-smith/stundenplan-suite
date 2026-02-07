@@ -4,6 +4,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
 
@@ -23,13 +24,22 @@ class SPlanWeekSensor(CoordinatorEntity):
         self._entry = entry
 
         target = (entry.data.get("target") or "").strip()
-        self._attr_unique_id = f"{entry.entry_id}_week"
+        self._attr_unique_id = f"{entry.entry_id}_week_{target.lower()}"
         self._attr_name = f"Stundenplan Woche ({target})"
         self._attr_icon = "mdi:calendar-week"
 
     @property
     def native_value(self) -> str:
         return "ok" if self.coordinator.last_update_success else "error"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, "stundenplan_suite_device")},
+            name="Stundenplan Suite",
+            manufacturer="HACS",
+            model="Stundenplan24",
+        )
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -39,9 +49,6 @@ class SPlanWeekSensor(CoordinatorEntity):
         rows_ha: list[dict] = []
 
         def first_or_empty(val: str) -> str:
-            """
-            Nimmt nur den ersten Kurs aus "A / B / C", behält aber ggf. \nInfo-Zeilen.
-            """
             if not val:
                 return ""
             parts = [p.strip() for p in val.split("/") if p.strip()]
@@ -54,7 +61,6 @@ class SPlanWeekSensor(CoordinatorEntity):
             end = row.get("end", "") or ""
             base_time = row.get("time", "") or ""
 
-            # Karte parst Start/Ende aus "time" (08:10-08:55) -> daher kombinieren
             if start and end:
                 time_str = f"{base_time} {start}-{end}".strip()
             else:
