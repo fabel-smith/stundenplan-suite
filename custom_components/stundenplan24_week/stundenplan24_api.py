@@ -89,6 +89,9 @@ class Stundenplan24Api:
     def url_mobil_wplan_kl_day(self, school_id: str, day) -> str:
         return f"{BASE}/{school_id}/mobil/mobdaten/WPlanKl{ymd(day)}.xml"
 
+    def url_wplan_day_xml(self, school_id: str, day) -> str:
+        return f"{BASE}/{school_id}/wplan/wdatenk/WPlanKl_{ymd(day)}.xml"
+
     def url_wplan_html(self, school_id: str, day=None) -> str:
         # plan.html without params usually shows only the current week.
         # Stundenplan24 supports selecting calendar week via a query param.
@@ -122,6 +125,13 @@ class Stundenplan24Api:
 
     async def fetch_mobil_wplan_kl_day_xml(self, school_id: str, day) -> str:
         return await self.fetch_text(self.url_mobil_wplan_kl_day(school_id, day), referer=self.url_vplan_root(school_id), xhr=False)
+
+    async def fetch_wplan_day_xml(self, school_id: str, day) -> str:
+        """Fetch Wochenplan Online day XML used by the browser week view."""
+        try:
+            return await self.fetch_text(self.url_wplan_day_xml(school_id, day), referer=self.url_wplan_root(school_id), xhr=False)
+        except Exception:
+            return await self.fetch_mobil_wplan_kl_day_xml(school_id, day)
 
     async def fetch_wplan_html(self, school_id: str, day=None) -> str:
         # Important: Referer must point to /wplan/ for some schools, plus browser-like UA.

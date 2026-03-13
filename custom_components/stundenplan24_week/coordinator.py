@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .parser import parse_plan_klassen_xml
-from .parser_wplan import parse_wplan_xml
+from .parser_wplan import parse_wplan_day_xml_lessons, parse_wplan_xml
 from .parser_wplan_html import parse_wplan_html_to_rows
 from .stundenplan24_api import Stundenplan24Api
 
@@ -260,6 +260,17 @@ def _ymd_to_dt(s: str) -> Optional[datetime]:
         return None
 
 
+def _hour_from_time_label(label: str) -> Optional[int]:
+    m = re.search(r"\b(\d{1,2})\b", (label or "").strip())
+    if not m:
+        return None
+    try:
+        hour = int(m.group(1))
+    except Exception:
+        return None
+    return hour if hour > 0 else None
+
+
 def _url_indiware_basis(school_id: str) -> str:
     return f"https://www.stundenplan24.de/{school_id}/wplan/wdatenk/SPlanKl_Basis.xml"
 
@@ -414,6 +425,34 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 return info_map
         return {}
 
+    async def _fetch_wplan_day_overlay_lessons(self, day_dt: datetime) -> Tuple[List[Tuple[int, str, str, str, str, str]], str, bool]:
+        """Future-week overlay from Wochenplan Online day XML."""
+        try:
+            xml_text = await self.api.fetch_wplan_day_xml(self.school_id, day_dt)
+        except Exception as err:
+            _LOGGER.debug("wplan day fetch failed %s: %s", ymd(day_dt), err)
+            return [], "", False
+
+        if not xml_text:
+            return [], "", False
+
+        stand = _extract_stand_from_xml(xml_text)
+        available = "<" in xml_text and "xml" in xml_text.lower()
+
+        last: List[Tuple[int, str, str, str, str, str]] = []
+        for tv in target_variants(self.target):
+            lessons = parse_wplan_day_xml_lessons(
+                xml_text,
+                target_class=tv,
+                show_room=self.show_room,
+                show_teacher=self.show_teacher,
+            )
+            last = lessons or []
+            if last:
+                return last, stand, available
+
+        return last, stand, available
+
     
     # -------- Indiware Wochenplan Online (wplan/wdatenk) --------
     async def _fetch_indiware_basis(self) -> Optional[dict]:
@@ -528,6 +567,19 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             fach = (std.findtext("PlFa", "") or "").strip()
             lehrer = (std.findtext("PlLe", "") or "").strip()
             raum = (std.findtext("PlRa", "") or "").strip()
+            info = (
+                (std.findtext("PlIf", "") or "").strip()
+                or (std.findtext("If", "") or "").strip()
+                or (std.findtext("Info", "") or "").strip()
+                or (std.findtext("Text", "") or "").strip()
+            )
+
+            if not fach and info:
+                fach = info
+                info = ""
+
+            if info and info not in fach:
+                fach = f"{fach}\n{info}".strip()
 
             start, end = times.get(hour, ("", ""))
             day_map[day_num].append((hour, fach, lehrer, raum, start, end))
@@ -597,7 +649,7 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 day_num = day_dt.weekday() + 1
                 base_lessons = list(indi["day_map"].get(day_num, []))
                 base_stand = indi.get("stand", "") or ""
-                overlay_lessons, overlay_stand, overlay_available = await self._fetch_vplan_overlay_lessons(day_dt)
+                overlay_lessons, overlay_stand, overlay_available = await self._fetch_wplan_day_overlay_lessons(day_dt)
                 stand = overlay_stand or (base_stand if overlay_available else "")
                 return base_lessons, overlay_lessons, stand, overlay_available
 
@@ -607,7 +659,7 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 day_num = day_dt.weekday() + 1
                 base_lessons = list(indi["day_map"].get(day_num, []))
                 base_stand = indi.get("stand", "") or ""
-                overlay_lessons, overlay_stand, overlay_available = await self._fetch_vplan_overlay_lessons(day_dt)
+                overlay_lessons, overlay_stand, overlay_available = await self._fetch_wplan_day_overlay_lessons(day_dt)
                 stand = overlay_stand or (base_stand if overlay_available else "")
                 return base_lessons, overlay_lessons, stand, overlay_available
 
@@ -616,6 +668,147 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         (base_lessons, base_stand), (overlay_lessons, overlay_stand, overlay_available) = await asyncio.gather(base_task, ov_task)
         stand = overlay_stand or base_stand or ""
         return base_lessons, overlay_lessons, stand, overlay_available
+
+    async def _build_rows_from_day_results(
+        self,
+        day_dates: List[datetime],
+        day_results: List[Tuple[List[Tuple[int, str, str, str, str, str]], List[Tuple[int, str, str, str, str, str]], str, bool]],
+    ) -> Tuple[List[Dict[str, Any]], bool, bool]:
+        """Build final week rows using the same merge logic as the main response."""
+        by_hour: Dict[int, Dict[str, Any]] = {}
+        time_minmax: Dict[int, Tuple[Optional[int], Optional[int]]] = {}
+        base_any = False
+        overlay_any = False
+
+        def to_min(t: str) -> Optional[int]:
+            t = (t or "").strip()
+            if not t or ":" not in t:
+                return None
+            try:
+                hh, mm = t.split(":", 1)
+                return int(hh) * 60 + int(mm)
+            except Exception:
+                return None
+
+        def to_hhmm(m: int) -> str:
+            return f"{m//60:02d}:{m%60:02d}"
+
+        for col_idx, (base_lessons, overlay_lessons, _stand, _overlay_available) in enumerate(day_results):
+            if base_lessons:
+                base_any = True
+            if overlay_lessons:
+                overlay_any = True
+
+            for (stunde, fach, lehrer, raum, start, end) in base_lessons:
+                if not stunde or stunde <= 0:
+                    continue
+                row = by_hour.get(stunde)
+                if not row:
+                    row = {"time": f"{stunde}.", "start": "", "end": "", "cells": ["", "", "", "", ""]}
+                    by_hour[stunde] = row
+
+                smin = to_min(start)
+                emin = to_min(end)
+                cur_s, cur_e = time_minmax.get(stunde, (None, None))
+                if smin is not None:
+                    cur_s = smin if cur_s is None else min(cur_s, smin)
+                if emin is not None:
+                    cur_e = emin if cur_e is None else max(cur_e, emin)
+                time_minmax[stunde] = (cur_s, cur_e)
+
+                lines: List[str] = []
+                lines.extend(_format_text((fach or "").strip()))
+                if self.show_room and (raum or "").strip():
+                    lines.append((raum or "").strip())
+                if self.show_teacher and (lehrer or "").strip():
+                    lines.append((lehrer or "").strip())
+
+                cell = "\n".join([l for l in lines if l]).strip()
+                if cell:
+                    row["cells"][col_idx] = _append_parallel(row["cells"][col_idx] or "", cell)
+
+            for (stunde, fach, lehrer, raum, start, end) in overlay_lessons:
+                if not stunde or stunde <= 0:
+                    continue
+                row = by_hour.get(stunde)
+                if not row:
+                    row = {"time": f"{stunde}.", "start": "", "end": "", "cells": ["", "", "", "", ""]}
+                    by_hour[stunde] = row
+
+                smin = to_min(start)
+                emin = to_min(end)
+                cur_s, cur_e = time_minmax.get(stunde, (None, None))
+                if cur_s is None and smin is not None:
+                    cur_s = smin
+                if cur_e is None and emin is not None:
+                    cur_e = emin
+                time_minmax[stunde] = (cur_s, cur_e)
+
+                lines: List[str] = []
+                lines.extend(_format_text((fach or "").strip()))
+                if self.show_room and (raum or "").strip():
+                    lines.append((raum or "").strip())
+                if self.show_teacher and (lehrer or "").strip():
+                    lines.append((lehrer or "").strip())
+
+                overlay_cell = "\n".join([l for l in lines if l]).strip()
+                if not overlay_cell:
+                    continue
+
+                base_cell = (row["cells"][col_idx] or "").strip()
+                row["cells"][col_idx] = _merge_cells(base_cell, overlay_cell)
+
+        if self.wplan_enabled and self.show_sub_text:
+            for day_dt in day_dates:
+                info_map = await self._fetch_wplan_info(day_dt)
+                if not info_map:
+                    continue
+                for (day_num, hour), info in info_map.items():
+                    if day_num < 1 or day_num > 5 or not hour or hour <= 0:
+                        continue
+
+                    col_idx = day_num - 1
+                    info_lines = _format_text(info)
+                    if not info_lines:
+                        continue
+
+                    row = by_hour.get(hour)
+                    if not row:
+                        row = {"time": f"{hour}.", "start": "", "end": "", "cells": ["", "", "", "", ""]}
+                        by_hour[hour] = row
+
+                    base_cell = (row["cells"][col_idx] or "").strip()
+                    row["cells"][col_idx] = _merge_cells(base_cell, "\n".join(info_lines))
+
+        for h, row in by_hour.items():
+            s, e = time_minmax.get(h, (None, None))
+            if s is not None:
+                row["start"] = to_hhmm(s)
+            if e is not None:
+                row["end"] = to_hhmm(e)
+
+        hours = sorted(by_hour.keys())
+        rows = [by_hour[h] for h in hours]
+        for row in rows:
+            row["cells"] = [c.strip() if c and c.strip() else "" for c in row["cells"]]
+
+        return rows, base_any, overlay_any
+
+    def _build_exact_maps_from_rows(
+        self,
+        day_dates: List[datetime],
+        rows: List[Dict[str, Any]],
+    ) -> Dict[str, Dict[str, str]]:
+        out: Dict[str, Dict[str, str]] = {ymd(day_dt): {} for day_dt in day_dates}
+        for row in rows:
+            time_key = (row.get("time") or "").strip()
+            if not time_key:
+                continue
+            cells = row.get("cells") or []
+            for idx, day_dt in enumerate(day_dates):
+                if idx < len(cells):
+                    out[ymd(day_dt)][time_key] = (cells[idx] or "").strip()
+        return out
 
     def _build_exact_week_maps(
         self,
@@ -700,6 +893,94 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return cells_by_date_time, updated_by_date, available_by_date
 
+    async def _enrich_exact_maps_with_wplan(
+        self,
+        day_dates: List[datetime],
+        cells_by_date_time: Dict[str, Dict[str, str]],
+    ) -> Dict[str, Dict[str, str]]:
+        """Apply optional WPlan info to exact date maps as well.
+
+        The card uses `exact_cells_by_date_time` for date-accurate rendering in
+        rolling/adjacent-week views. If we only enrich the main weekly rows with
+        WPlan info, those exact maps would overwrite the richer cells with a
+        stripped-down base/overlay version.
+        """
+        if not self.wplan_enabled or not self.show_sub_text:
+            return cells_by_date_time
+
+        for day_dt in day_dates:
+            info_map = await self._fetch_wplan_info(day_dt)
+            if not info_map:
+                continue
+
+            date_key = ymd(day_dt)
+            day_map = cells_by_date_time.setdefault(date_key, {})
+            day_num = day_dt.weekday() + 1
+
+            for (info_day_num, hour), info in info_map.items():
+                if info_day_num != day_num or not hour or hour <= 0:
+                    continue
+
+                info_lines = _format_text(info)
+                if not info_lines:
+                    continue
+
+                time_key = f"{hour}."
+                base_cell = (day_map.get(time_key) or "").strip()
+                day_map[time_key] = _merge_cells(base_cell, "\n".join(info_lines))
+
+        return cells_by_date_time
+
+    async def _fetch_wplan_html_week_map(self, monday_dt: datetime) -> Dict[str, Dict[str, str]]:
+        """Fetch Stundenplan24 weekly HTML and map it to exact day/hour cells."""
+        try:
+            html_text = await self.api.fetch_wplan_html(self.school_id, monday_dt)
+        except Exception:
+            return {}
+
+        rows = parse_wplan_html_to_rows(html_text)
+        if not rows:
+            return {}
+
+        day_dates = weekdays_for_monday(monday_dt)
+        week_map: Dict[str, Dict[str, str]] = {ymd(day_dt): {} for day_dt in day_dates}
+
+        for row in rows:
+            hour = _hour_from_time_label(str(row.get("time", "")))
+            if not hour:
+                continue
+            cells = row.get("cells") or []
+            for day_idx, day_dt in enumerate(day_dates):
+                if day_idx >= len(cells):
+                    continue
+                cell = (cells[day_idx] or "").strip()
+                if not cell:
+                    continue
+                week_map[ymd(day_dt)][f"{hour}."] = cell
+
+        return week_map
+
+    async def _enrich_exact_maps_with_wplan_html(
+        self,
+        monday_dt: datetime,
+        cells_by_date_time: Dict[str, Dict[str, str]],
+    ) -> Dict[str, Dict[str, str]]:
+        """Use Stundenplan24 weekly HTML as authoritative enrichment for visible future days."""
+        if not self.wplan_enabled or not self.show_sub_text:
+            return cells_by_date_time
+
+        week_map = await self._fetch_wplan_html_week_map(monday_dt)
+        if not week_map:
+            return cells_by_date_time
+
+        for date_key, hour_map in week_map.items():
+            day_map = cells_by_date_time.setdefault(date_key, {})
+            for time_key, cell in hour_map.items():
+                if cell:
+                    day_map[time_key] = cell
+
+        return cells_by_date_time
+
 # -------- Update --------
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
@@ -762,6 +1043,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 day_dates,
                 day_results,
             )
+            exact_cells_by_date_time = await self._enrich_exact_maps_with_wplan(day_dates, exact_cells_by_date_time)
+            exact_cells_by_date_time = await self._enrich_exact_maps_with_wplan_html(monday, exact_cells_by_date_time)
 
             for week_delta in (-2, -1, 1, 2):
                 probe_monday = monday + timedelta(weeks=week_delta)
@@ -769,7 +1052,10 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 probe_results = await asyncio.gather(
                     *(self._fetch_day_bundle(probe_monday, d, use_current_week_mode=False) for d in probe_dates)
                 )
-                probe_cells, probe_updated, probe_available = self._build_exact_week_maps(probe_dates, probe_results)
+                probe_rows, _probe_base_any, _probe_overlay_any = await self._build_rows_from_day_results(probe_dates, probe_results)
+                probe_cells = self._build_exact_maps_from_rows(probe_dates, probe_rows)
+                probe_updated = {ymd(day_dt): _norm_ts(result[2]) if result[2] else "" for day_dt, result in zip(probe_dates, probe_results)}
+                probe_available = {ymd(day_dt): bool(result[3]) for day_dt, result in zip(probe_dates, probe_results)}
                 exact_cells_by_date_time.update(probe_cells)
                 exact_updated_by_date.update(probe_updated)
                 exact_available_by_date.update(probe_available)
@@ -893,6 +1179,7 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             rows = [by_hour[h] for h in hours]
             for row in rows:
                 row["cells"] = [c.strip() if c and c.strip() else "" for c in row["cells"]]
+            exact_cells_by_date_time.update(self._build_exact_maps_from_rows(day_dates, rows))
 
             # Ferien / keine Daten in dieser Woche
             if not base_any and not overlay_any:
