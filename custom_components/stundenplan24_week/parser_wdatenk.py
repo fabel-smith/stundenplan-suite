@@ -89,8 +89,8 @@ def parse_weekplan_splan(xml_text: str, target_class: str, show_room: bool, show
     """
     Liest SPlanKl_SwXX.xml (wdatenk) und gibt rows im Card-Format:
     [
-      { "time":"1.", "start":None, "end":None, "cells":[...Mo..Fr...] },
-      ...
+    { "time":"1.", "start":None, "end":None, "cells":[...Mo..Fr...] },
+    ...
     ]
     Zeiten sind hier meist nicht enthalten -> Card kann über manuelle rows fallbacken.
     """

@@ -1,95 +1,53 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 import xml.etree.ElementTree as ET
 
 
-def _text(node: Optional[ET.Element]) -> str:
-    return (node.text or "").strip() if node is not None else ""
-
-
-def _norm_target(target: str) -> str:
-    return (target or "").strip().lower()
-
-
-def match_plkl(plkl: str, target: str) -> bool:
-    return _norm_target(plkl) == _norm_target(target)
-
-
-def _extract_info(std: ET.Element) -> str:
-    """
-    WPlanKlYYYYMMDD.xml enthält je nach System unterschiedliche Felder.
-    Wir versuchen robust die "Info"/Bemerkung/Vertretungstexte zu finden.
-
-    Strategie:
-    1) bekannte Tag-Namen bevorzugen (häufige Kandidaten)
-    2) fallback: alle Textfelder einsammeln, die nicht Basisfelder sind
-    """
-    preferred_tags = [
-        "PlTx", "PlTxt", "PlText", "PlInfo", "PlBem", "PlBemerkung",
-        "PlZu", "PlZusatz", "PlVe", "PlVertretung", "PlHinweis",
-        "PlNotiz", "PlKommentar",
-    ]
-
-    # 1) Prefered
-    parts: List[str] = []
-    for tag in preferred_tags:
-        v = _text(std.find(tag))
-        if v:
-            parts.append(v)
-
-    if parts:
-        return " | ".join(dict.fromkeys(parts)).strip()
-
-    # 2) Fallback: alles außer Basisfeldern
-    base = {"PlTg", "PlSt", "PlKl", "PlFa", "PlLe", "PlRa"}
-    for child in list(std):
-        if child.tag in base:
-            continue
-        v = _text(child)
-        if v:
-            parts.append(v)
-
-    # Duplikate raus, Reihenfolge behalten
-    uniq: List[str] = []
-    seen = set()
-    for p in parts:
-        if p not in seen:
-            uniq.append(p)
-            seen.add(p)
-
-    return " | ".join(uniq).strip()
+def _txt(el) -> str:
+    if el is None or el.text is None:
+        return ""
+    return el.text.strip()
 
 
 def parse_wplan_xml(xml_text: str, target_class: str) -> Dict[Tuple[int, int], str]:
     """
-    Gibt mapping (day:int 1..7, hour:int 1..n) -> info_text zurück.
-    Filtert auf Klasse (PlKl).
+    Mobil WPlanKlYYYYMMDD.xml:
+    Return dict[(day_num, hour)] = info_text
+    day_num: 1..5 (Mo..Fr)
     """
-    root = ET.fromstring(xml_text)
 
-    std_nodes = root.findall(".//Std")
     out: Dict[Tuple[int, int], str] = {}
+    if not xml_text:
+        return out
 
-    for std in std_nodes:
-        day = int((_text(std.find("PlTg")) or "0") or 0)
-        hour = int((_text(std.find("PlSt")) or "0") or 0)
-        if day <= 0 or hour <= 0:
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return out
+
+    tclass = (target_class or "").strip()
+    if not tclass:
+        return out
+
+    # Sehr robust: suche Einträge, die Kurz/Klasse enthalten
+    for node in root.findall(".//*"):
+        kurz = _txt(node.find("Kurz")) or _txt(node.find("klasse")) or _txt(node.find("Klasse"))
+        if kurz != tclass:
             continue
 
-        plkl = _text(std.find("PlKl"))
-        if plkl and not match_plkl(plkl, target_class):
+        # Tag/TagNr und Stunde
+        day_txt = _txt(node.find("Tag")) or _txt(node.find("Day")) or _txt(node.find("T"))
+        hour_txt = _txt(node.find("St")) or _txt(node.find("Std")) or _txt(node.find("Stunde"))
+
+        try:
+            day_num = int(day_txt)
+            hour = int(hour_txt)
+        except Exception:
             continue
 
-        info = _extract_info(std)
-        if not info:
-            continue
-
-        key = (day, hour)
-        # falls mehrere Einträge pro Stunde: zusammenführen
-        if key in out and info not in out[key]:
-            out[key] = f"{out[key]} | {info}"
-        else:
-            out[key] = info
+        info = _txt(node.find("If")) or _txt(node.find("Info")) or _txt(node.find("Text"))
+        if info:
+            out[(day_num, hour)] = info
 
     return out

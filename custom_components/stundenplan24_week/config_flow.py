@@ -24,7 +24,7 @@ DEFAULT_WPLAN_ENABLED = False
 DEFAULT_WPLAN_DAYS = 3
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class Stundenplan24WeekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):

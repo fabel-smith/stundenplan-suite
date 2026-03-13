@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
+from .coordinator import SPlanCoordinator
 
 
 async def async_setup_entry(
@@ -14,71 +18,83 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coord = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([SPlanWeekSensor(coord, entry)], True)
+    coordinator: SPlanCoordinator = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([Stundenplan24WeekSensor(coordinator, entry)], update_before_add=True)
 
 
-class SPlanWeekSensor(CoordinatorEntity):
-    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity):
+    _attr_icon = "mdi:calendar-week"
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: SPlanCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._entry = entry
+        self.entry = entry
 
-        target = (entry.data.get("target") or "").strip()
-        self._attr_unique_id = f"{entry.entry_id}_week_{target.lower()}"
-        self._attr_name = f"Stundenplan Woche ({target})"
-        self._attr_icon = "mdi:calendar-week"
+        target = (coordinator.target or "klasse").strip()
+
+        # eindeutige ID + Name
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_{target}_woche"
+        self._attr_name = f"{target} Woche"
+
+        # Optional: wenn du willst, dass die Entity-ID im Editor eher "sprechend" wird,
+        # setze den Namen um (HA generiert entity_id dann neu nur bei Neuanlage).
+        # self._attr_name = f"Stundenplan Woche {target}"
 
     @property
     def native_value(self) -> str:
-        return "ok" if self.coordinator.last_update_success else "error"
+        """Kurzer Status als Sensorwert."""
+        data = self.coordinator.data or {}
+        meta = data.get("meta") or {}
+        no_plan = bool(meta.get("no_plan", False))
+
+        if no_plan:
+            return "Kein Plan"
+
+        rows = data.get("rows") or []
+        return "Plan verfügbar" if rows else "Kein Plan"
 
     @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "stundenplan_suite_device")},
-            name="Stundenplan Suite",
-            manufacturer="HACS",
-            model="Stundenplan24",
-        )
-
-    @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
 
-        rows_raw = data.get("rows", [])
-        rows_ha: list[dict] = []
+        rows = data.get("rows") or []
+        rows_table = data.get("rows_table") or []  # NEU: Legacy-Format Mo/Di/Mi/Do/Fr
 
-        def first_or_empty(val: str) -> str:
-            if not val:
-                return ""
-            parts = [p.strip() for p in val.split("/") if p.strip()]
-            return parts[0] if parts else ""
+        meta = data.get("meta") or {}
 
-        for row in rows_raw:
-            cells = row.get("cells", [])
+        attrs: dict[str, Any] = {
+            # neues Format
+            "rows": rows,
+            "meta": meta,
 
-            start = row.get("start", "") or ""
-            end = row.get("end", "") or ""
-            base_time = row.get("time", "") or ""
+            # Rückwärtskompatibilität / Aliase
+            "rows_ha": rows,
+            "meta_ha": meta,
 
-            if start and end:
-                time_str = f"{base_time} {start}-{end}".strip()
-            else:
-                time_str = base_time
-
-            rows_ha.append(
-                {
-                    "time": time_str,
-                    "Mo": first_or_empty(cells[0]) if len(cells) > 0 else "",
-                    "Di": first_or_empty(cells[1]) if len(cells) > 1 else "",
-                    "Mi": first_or_empty(cells[2]) if len(cells) > 2 else "",
-                    "Do": first_or_empty(cells[3]) if len(cells) > 3 else "",
-                    "Fr": first_or_empty(cells[4]) if len(cells) > 4 else "",
-                }
-            )
-
-        return {
-            "rows": rows_raw,
-            "meta": data.get("meta", {}),
-            "rows_ha": rows_ha,
+            # Legacy: Card-Source-Modus erwartet Keys "Mo".."Fr"
+            "rows_table": rows_table,
         }
+
+        # JSON-Strings (manche Karten/Templating nutzen lieber Strings)
+        try:
+            attrs["rows_json"] = json.dumps(rows, ensure_ascii=False)
+        except Exception:
+            attrs["rows_json"] = "[]"
+
+        try:
+            attrs["meta_json"] = json.dumps(meta, ensure_ascii=False)
+        except Exception:
+            attrs["meta_json"] = "{}"
+
+        try:
+            attrs["rows_table_json"] = json.dumps(rows_table, ensure_ascii=False)
+        except Exception:
+            attrs["rows_table_json"] = "[]"
+
+        # Bequeme “Meta”-Attribute oben rausziehen
+        if isinstance(meta, dict):
+            for k in ("week_start", "days", "class", "school_id", "no_plan"):
+                if k in meta:
+                    attrs[k] = meta.get(k)
+
+        return attrs
