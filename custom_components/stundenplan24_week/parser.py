@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import html
 from typing import List, Tuple
 import xml.etree.ElementTree as ET
 
 
 def _txt(el) -> str:
-    if el is None or el.text is None:
+    if el is None:
         return ""
-    return el.text.strip()
+    raw = "".join(el.itertext()) if hasattr(el, "itertext") else (el.text or "")
+    raw = html.unescape(raw or "").replace("\xa0", " ").strip()
+    if raw.lower() == "&nbsp;":
+        return ""
+    return raw
 
 
 def parse_plan_klassen_xml(

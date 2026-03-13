@@ -291,6 +291,8 @@ def _merge_cells(base: str, overlay: str) -> str:
         return f"—\n{o}".strip()
 
     if t == OverlayType.MOVE:
+        if o.startswith("---") or o.startswith("—"):
+            return o
         if b:
             b_lines = [x.strip() for x in b.splitlines() if x.strip()]
             o_lines = [x.strip() for x in o.splitlines() if x.strip()]

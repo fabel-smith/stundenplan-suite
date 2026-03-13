@@ -1,13 +1,29 @@
 from __future__ import annotations
 
+import html
 from typing import Dict, List, Tuple
 import xml.etree.ElementTree as ET
 
+RED_MARKER = "[[sp-red]]"
+
 
 def _txt(el) -> str:
-    if el is None or el.text is None:
+    if el is None:
         return ""
-    return el.text.strip()
+    raw = "".join(el.itertext()) if hasattr(el, "itertext") else (el.text or "")
+    raw = html.unescape(raw or "").replace("\xa0", " ").strip()
+    if raw.lower() == "&nbsp;":
+        return ""
+    return raw
+
+
+def _mark_if_changed(value: str, changed: str) -> str:
+    v = (value or "").strip()
+    if not v:
+        return v
+    if (changed or "").strip():
+        return f"{RED_MARKER}{v}"
+    return v
 
 
 def parse_wplan_xml(xml_text: str, target_class: str) -> Dict[Tuple[int, int], str]:
@@ -87,19 +103,35 @@ def parse_wplan_day_xml_lessons(
             continue
 
         for std in kl.findall(".//Std"):
-            st_txt = _txt(std.find("St"))
+            st_txt = _txt(std.find(".//St")) or _txt(std.find(".//Std")) or _txt(std.find(".//Stunde"))
             try:
                 stunde = int(st_txt)
             except Exception:
                 continue
 
-            fach = _txt(std.find("Fa"))
-            lehrer = _txt(std.find("Le"))
-            raum = _txt(std.find("Ra"))
-            info = _txt(std.find("If")) or _txt(std.find("Info")) or _txt(std.find("Text"))
+            fa_node = std.find(".//Fa")
+            le_node = std.find(".//Le")
+            ra_node = std.find(".//Ra")
+
+            fach = _txt(fa_node) or _txt(std.find(".//Fach"))
+            lehrer = _txt(le_node) or _txt(std.find(".//Lehrer"))
+            raum = _txt(ra_node) or _txt(std.find(".//Raum"))
+            info = _txt(std.find(".//If")) or _txt(std.find(".//Info")) or _txt(std.find(".//Text"))
+            aend_fach = (fa_node.attrib.get("FaAe", "") if fa_node is not None else "").strip()
+            aend_lehrer = (le_node.attrib.get("LeAe", "") if le_node is not None else "").strip()
+            aend_raum = (ra_node.attrib.get("RaAe", "") if ra_node is not None else "").strip()
 
             fach = (fach or "").strip()
+            lehrer = (lehrer or "").strip()
+            raum = (raum or "").strip()
             info = (info or "").strip()
+
+            if fach in {"&nbsp;", "\xa0"}:
+                fach = ""
+            if lehrer in {"&nbsp;", "\xa0"}:
+                lehrer = ""
+            if raum in {"&nbsp;", "\xa0"}:
+                raum = ""
 
             if not fach and info:
                 fach = info
@@ -107,6 +139,15 @@ def parse_wplan_day_xml_lessons(
 
             if not fach and not lehrer and not raum and not info:
                 continue
+
+            # Indiware shows a visible placeholder when the subject itself changed
+            # to "empty", e.g. canceled first lessons in future weeks.
+            if not fach and aend_fach == "FaGeaendert":
+                fach = "---"
+
+            fach = _mark_if_changed(fach, aend_fach)
+            lehrer = _mark_if_changed(lehrer, aend_lehrer)
+            raum = _mark_if_changed(raum, aend_raum)
 
             fach_plus = fach
             if info and info not in fach_plus:
