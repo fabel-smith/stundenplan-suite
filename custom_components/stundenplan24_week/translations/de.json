@@ -19,9 +19,13 @@
     "step": {
       "init": {
         "title": "Optionen",
+        "description": "Kurze Update-Intervalle k\u00f6nnen bei Stundenplan24 zu einer tempor\u00e4ren IP-Sperre f\u00fchren. Wenn m\u00f6glich, kein dauerhaft zu kleines Intervall verwenden.",
         "data": {
           "show_room": "Raum anzeigen",
-          "show_teacher": "Lehrer anzeigen"
+          "show_teacher": "Lehrer anzeigen",
+          "update_minutes": "Update-Intervall (Minuten)",
+          "wplan_enabled": "Wochenplan-Zusatzdaten laden",
+          "wplan_days": "Anzahl zus\u00e4tzlicher WPlan-Tage"
         }
       }
     }
