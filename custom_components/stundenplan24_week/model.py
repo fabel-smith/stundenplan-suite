@@ -17,6 +17,17 @@ CARD_META_KEYS = (
     "updated_raw", "updated_error", "source", "provider", "fetched_at",
     "source_updated_at", "coverage", "issues", "week_offset",
 )
+CELL_STYLES = {
+    "cancelled": {
+        "bg": "#d32f2f", "bg_alpha": 0.20,
+        "color": "var(--error-color, #ff5252)",
+    },
+    "changed": {
+        "bg": "#f9a825", "bg_alpha": 0.18,
+        "color": "var(--warning-color, #ffb300)",
+    },
+}
+STYLE_PRIORITY = {"changed": 1, "cancelled": 2}
 
 
 @dataclass
@@ -96,7 +107,9 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
         label = f"{item.period}." if item.period.isdigit() else (item.period or f"{start}–{end}")
         key = (start, end, label)
         row = grid.setdefault(key, {"time": label, "start": start, "end": end,
-                                    "kind": item.kind, "cells": [""] * 5})
+                                    "kind": item.kind, "cells": [""] * 5,
+                                    "cell_styles": [None] * 5,
+                                    "style_priorities": [0] * 5})
         text = item.subject or ("Pause" if item.kind == "break" else "Veranstaltung" if item.kind == "event" else "Unterricht")
         if item.status == "cancelled":
             text = "Entfällt: " + text
@@ -110,6 +123,10 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
         parts.extend(item.notes)
         cell = "\n".join(x for x in parts if x)
         row["cells"][col] = "\n\n".join(x for x in (row["cells"][col], cell) if x)
+        priority = STYLE_PRIORITY.get(item.status, 0)
+        if priority > row["style_priorities"][col]:
+            row["cell_styles"][col] = CELL_STYLES.get(item.status)
+            row["style_priorities"][col] = priority
     rows = []
     for key in sorted(grid):
         row = grid[key]
@@ -117,10 +134,16 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
             rows.append({"break": True, "time": f'{row["start"]}–{row["end"]}',
                          "start": row["start"], "end": row["end"], "label": "Pause"})
         else:
-            rows.append({k: v for k, v in row.items() if k != "kind"})
+            projected = {k: v for k, v in row.items()
+                         if k not in ("kind", "style_priorities", "cell_styles")}
+            if any(row["cell_styles"]):
+                projected["cell_styles"] = row["cell_styles"]
+            rows.append(projected)
     table = [dict(r) if r.get("break") else
              {"time": r["time"], "start": r["start"], "end": r["end"],
-              **dict(zip(DAYS, r["cells"]))} for r in rows]
+              **dict(zip(DAYS, r["cells"])),
+              **({"cell_styles": r["cell_styles"]} if "cell_styles" in r else {})}
+             for r in rows]
     return rows, table
 
 

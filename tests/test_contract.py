@@ -170,6 +170,27 @@ def test_card_projection_hides_display_only():
     assert items[0].rooms == ["R1"] and items[0].teachers == ["T1"]
 
 
+def test_card_projection_exposes_change_styles_with_cancellation_priority():
+    monday = date(2026, 9, 14)
+    changed = Lesson(str(DAY), NOW.isoformat(), (NOW + timedelta(minutes=45)).isoformat(),
+                     period="1", subject="M", status="changed")
+    cancelled = Lesson(str(DAY), NOW.isoformat(), (NOW + timedelta(minutes=45)).isoformat(),
+                       period="1", subject="D", status="cancelled")
+    rows, table = card_rows([changed, cancelled], monday)
+    assert rows[0]["cell_styles"][3] == {
+        "bg": "#d32f2f", "bg_alpha": 0.20,
+        "color": "var(--error-color, #ff5252)",
+    }
+    assert table[0]["cell_styles"] == rows[0]["cell_styles"]
+
+
+def test_card_projection_omits_styles_for_regular_lessons():
+    items, _, _ = normal([event()], [raw()])
+    rows, table = card_rows(items, date(2026, 9, 14))
+    assert "cell_styles" not in rows[0]
+    assert "cell_styles" not in table[0]
+
+
 def test_daily_does_not_follow_display_week():
     items, verified, _ = normal([event()], [raw()])
     result = payload(items, date(2026,9,21), DAY, provider="test", target="3c", fetched_at=NOW.isoformat(), verified_days=verified)

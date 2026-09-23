@@ -28,6 +28,7 @@ Kurz gesagt:
 - stellt die Daten als **Home-Assistant-Sensor(en)** bereit
 - kein manuelles JSON, kein REST-Sensor nötig
 - rekonstruiert bei Schulmanager fehlende Pausenzeilen aus dem Stundenraster
+- markiert Ausfälle und geänderte Stunden farblich in der stundenplan-card
 
 > **Merksatz:**  
 > **Suite = Daten + Logik**  
@@ -138,6 +139,11 @@ Die Suite erzeugt daraus einen eigenen `*_woche`-Sensor für die Karte. Pausen, 
 im Kalender fehlen, aber im Stundenraster ausdrücklich vorhanden sind, werden
 automatisch als Pausenzeilen ergänzt.
 
+Vom Schulmanager gemeldete Ausfälle und Änderungen werden als strukturierte
+`cell_styles` an die Karte übergeben. Ausfälle erscheinen rot, Änderungen gelb.
+Normale Unterrichtsstunden erhalten keinen zusätzlichen Stil. Bei mehreren
+Einträgen in derselben Zelle hat ein Ausfall Vorrang vor einer Änderung.
+
 ---
 
 ## Entitäten
@@ -166,6 +172,26 @@ entity: sensor.stundenplan24_week_rows_ha
 
 > **Wichtig:**  
 > Bei Nutzung der Suite **keine** eigenen JSON-Dateien und **keine** REST-Sensoren anlegen.
+
+### JSON-Vertrag für Zellfarben
+
+Die Karte akzeptiert Farben unabhängig von der Datenquelle über das optionale
+Array `cell_styles`. Jeder Eintrag entspricht dem Tag an derselben Position in
+`cells`:
+
+```json
+{
+  "time": "2.",
+  "cells": ["D", "M", "Entfällt: E", "", "Sp"],
+  "cell_styles": [null, null, {
+    "bg": "#d32f2f",
+    "bg_alpha": 0.2,
+    "color": "var(--error-color, #ff5252)"
+  }, null, null]
+}
+```
+
+Die Suite erzeugt diese Angaben für unterstützte Statusinformationen automatisch.
 
 ---
 
