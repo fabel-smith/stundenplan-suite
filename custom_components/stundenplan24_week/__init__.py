@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
 
 from .const import DOMAIN
-from .coordinator import SPlanCoordinator
+from .suite_coordinator import SuiteCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up stundenplan24_week from a config entry."""
-    coordinator = SPlanCoordinator(hass, entry)
+    coordinator = SuiteCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
@@ -24,7 +24,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator.async_watch_sources()
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_options_updated(hass, entry):
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

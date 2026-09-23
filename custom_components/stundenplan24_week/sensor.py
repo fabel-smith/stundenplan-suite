@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import SPlanCoordinator
+from .suite_coordinator import SuiteCoordinator as SPlanCoordinator
 
 
 async def async_setup_entry(
@@ -19,7 +19,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: SPlanCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([Stundenplan24WeekSensor(coordinator, entry)], update_before_add=True)
+    async_add_entities([Stundenplan24WeekSensor(coordinator, entry),
+                        DailySensor(coordinator, entry, "today"),
+                        DailySensor(coordinator, entry, "tomorrow")], update_before_add=True)
 
 
 class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity):
@@ -63,6 +65,9 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
         meta = data.get("meta") or {}
 
         attrs: dict[str, Any] = {
+            "schema_version": data.get("schema_version", 1),
+            "provider": data.get("provider"),
+            "lessons": data.get("lessons", []),
             # neues Format
             "rows": rows,
             "meta": meta,
@@ -74,6 +79,11 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
             # Legacy: Card-Source-Modus erwartet Keys "Mo".."Fr"
             "rows_table": rows_table,
         }
+
+        from homeassistant.helpers import entity_registry as er
+        offset_uid = (f"{DOMAIN}_{self.entry.entry_id}_week_offset" if self.entry.data.get("provider") == "schulmanager"
+                      else f"{DOMAIN}_{self.coordinator.target}_week_offset")
+        attrs["week_offset_entity"] = er.async_get(self.hass).async_get_entity_id("number", DOMAIN, offset_uid)
 
         # JSON-Strings (manche Karten/Templating nutzen lieber Strings)
         try:
@@ -98,3 +108,30 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
                     attrs[k] = meta.get(k)
 
         return attrs
+
+
+class DailySensor(CoordinatorEntity[SPlanCoordinator], SensorEntity):
+    """Date-bound summaries independent of the card's selected week."""
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:school"
+
+    def __init__(self, coordinator, entry, day):
+        super().__init__(coordinator)
+        self.day = day
+        self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_{day}"
+        self._attr_name = f"{coordinator.target} Unterricht {'heute' if day == 'today' else 'morgen'}"
+
+    @property
+    def native_value(self):
+        return self.extra_state_attributes.get("school_day", "unknown")
+
+    @property
+    def extra_state_attributes(self):
+        from homeassistant.util import dt as dt_util
+        from datetime import timedelta
+        day = dt_util.now().date() + timedelta(days=self.day == "tomorrow")
+        data = ((self.coordinator.data or {}).get("daily") or {}).get(self.day, {})
+        if data.get("date") != day.isoformat():
+            return {"date": day.isoformat(), "school_day": "unknown", "routine_ready": False,
+                    "first_start": None, "last_end": None, "subjects": [], "coverage": "stale"}
+        return {**data, "provider": self.coordinator.provider_name, "schema_version": 1}

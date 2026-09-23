@@ -33,6 +33,10 @@ async def async_setup_entry(
         _LOGGER.error("Missing '%s' in config entry %s", CONF_TARGET, entry.entry_id)
         return
 
+    if entry.data.get("provider") == "schulmanager":
+        async_add_entities([WeekOffsetNumber(hass, entry)], True)
+        return
+
     # ---- Entity-Registry Migration / Cleanup ----
     # Ziel: immer genau *eine* Number-Entity unter number.<target>_woche_offset,
     # ohne _2/_3-Duplikate aus früheren Versionen.
@@ -85,6 +89,8 @@ class WeekOffsetNumber(NumberEntity, RestoreEntity):
 
         # Stable unique_id -> verhindert _2/_3 in der Registry
         self._attr_unique_id = f"{DOMAIN}_{self.target}_week_offset"
+        if entry.data.get("provider") == "schulmanager":
+            self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_week_offset"
         self._attr_name = f"{self.target} Woche Offset"
         self._attr_icon = "mdi:calendar-week"
 
