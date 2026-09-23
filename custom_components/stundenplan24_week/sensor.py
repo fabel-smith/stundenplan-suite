@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -10,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .model import compact_week_attributes
 from .suite_coordinator import SuiteCoordinator as SPlanCoordinator
 
 
@@ -58,55 +58,12 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
-
-        rows = data.get("rows") or []
-        rows_table = data.get("rows_table") or []  # NEU: Legacy-Format Mo/Di/Mi/Do/Fr
-
-        meta = data.get("meta") or {}
-
-        attrs: dict[str, Any] = {
-            "schema_version": data.get("schema_version", 1),
-            "provider": data.get("provider"),
-            "lessons": data.get("lessons", []),
-            # neues Format
-            "rows": rows,
-            "meta": meta,
-
-            # Rückwärtskompatibilität / Aliase
-            "rows_ha": rows,
-            "meta_ha": meta,
-
-            # Legacy: Card-Source-Modus erwartet Keys "Mo".."Fr"
-            "rows_table": rows_table,
-        }
+        attrs = compact_week_attributes(data)
 
         from homeassistant.helpers import entity_registry as er
         offset_uid = (f"{DOMAIN}_{self.entry.entry_id}_week_offset" if self.entry.data.get("provider") == "schulmanager"
                       else f"{DOMAIN}_{self.coordinator.target}_week_offset")
         attrs["week_offset_entity"] = er.async_get(self.hass).async_get_entity_id("number", DOMAIN, offset_uid)
-
-        # JSON-Strings (manche Karten/Templating nutzen lieber Strings)
-        try:
-            attrs["rows_json"] = json.dumps(rows, ensure_ascii=False)
-        except Exception:
-            attrs["rows_json"] = "[]"
-
-        try:
-            attrs["meta_json"] = json.dumps(meta, ensure_ascii=False)
-        except Exception:
-            attrs["meta_json"] = "{}"
-
-        try:
-            attrs["rows_table_json"] = json.dumps(rows_table, ensure_ascii=False)
-        except Exception:
-            attrs["rows_table_json"] = "[]"
-
-        # Bequeme “Meta”-Attribute oben rausziehen
-        if isinstance(meta, dict):
-            for k in ("week_start", "days", "class", "school_id", "no_plan"):
-                if k in meta:
-                    attrs[k] = meta.get(k)
-
         return attrs
 
 

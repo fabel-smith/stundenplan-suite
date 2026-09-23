@@ -1,10 +1,11 @@
 import asyncio
+import json
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from stundenplan24_week.model import Lesson, card_rows, day_summary, payload
+from stundenplan24_week.model import Lesson, card_rows, compact_week_attributes, day_summary, payload
 from stundenplan24_week.schulmanager import SchulmanagerProvider, normalize, period_times
 
 ZONE = timezone(timedelta(hours=2))
@@ -174,6 +175,31 @@ def test_daily_does_not_follow_display_week():
     result = payload(items, date(2026,9,21), DAY, provider="test", target="3c", fetched_at=NOW.isoformat(), verified_days=verified)
     assert result["rows"] == [] and result["daily"]["today"]["first_start"]
     assert result["daily"]["today"]["date"] == "2026-09-17"
+
+
+def test_week_sensor_contract_stays_below_recorder_limit():
+    rows_table = [
+        {"time": f"{hour}.", "start": "07:45", "end": "08:30",
+         **{day: "Langes Fach\nRaum 123\nLehrkraft" for day in ("Mo", "Di", "Mi", "Do", "Fr")}}
+        for hour in range(1, 23)
+    ]
+    data = {
+        "schema_version": 1,
+        "provider": "stundenplan24",
+        "rows_table": rows_table,
+        "rows": [{"duplicate": row} for row in rows_table],
+        "lessons": [{"large": "x" * 500} for _ in range(50)],
+        "meta": {
+            "week_start": "20260921", "days": ["20260921", "20260922"],
+            "class": "5a", "no_plan": False, "exact_cells_by_date_time": {"huge": "x" * 20000},
+            "vplan_available_by_date": {str(i): True for i in range(100)},
+        },
+    }
+    attrs = compact_week_attributes(data)
+    assert set(attrs) == {"schema_version", "provider", "rows_table", "meta",
+                          "week_start", "days", "class", "no_plan"}
+    assert "exact_cells_by_date_time" not in attrs["meta"]
+    assert len(json.dumps(attrs, ensure_ascii=False).encode("utf-8")) < 16384
 
 
 def test_utc_timestamps_converted():

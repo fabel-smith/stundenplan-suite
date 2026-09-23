@@ -12,6 +12,11 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 DAYS = ("Mo", "Di", "Mi", "Do", "Fr")
+CARD_META_KEYS = (
+    "week_start", "days", "class", "school_id", "no_plan", "updated_days",
+    "updated_raw", "updated_error", "source", "provider", "fetched_at",
+    "source_updated_at", "coverage", "issues", "week_offset",
+)
 
 
 @dataclass
@@ -117,6 +122,27 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
              {"time": r["time"], "start": r["start"], "end": r["end"],
               **dict(zip(DAYS, r["cells"]))} for r in rows]
     return rows, table
+
+
+def compact_week_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Return the non-duplicated sensor contract consumed by the card.
+
+    Home Assistant stores the complete attribute mapping in the recorder. Older
+    versions exposed the same timetable and metadata under several aliases and
+    JSON strings, which could exceed the recorder's 16 KiB attribute limit.
+    """
+    source_meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    meta = {key: source_meta[key] for key in CARD_META_KEYS if key in source_meta}
+    attrs: dict[str, Any] = {
+        "schema_version": data.get("schema_version", SCHEMA_VERSION),
+        "provider": data.get("provider"),
+        "rows_table": data.get("rows_table") or [],
+        "meta": meta,
+    }
+    for key in ("week_start", "days", "class", "school_id", "no_plan"):
+        if key in meta:
+            attrs[key] = meta[key]
+    return attrs
 
 
 def payload(lessons: list[Lesson], monday: date, today: date, *, provider: str,
