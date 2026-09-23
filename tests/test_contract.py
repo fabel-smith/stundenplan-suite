@@ -90,6 +90,41 @@ def test_missing_calendar_pause_is_added_from_period_table_for_card():
     assert next(row for row in table if row.get("break")) == pause
 
 
+def test_long_period_gaps_are_inferred_as_breaks_but_short_changes_are_not():
+    plan = [
+        {"Stunde": "1. 07:45:00 - 08:30:00"},
+        {"Stunde": "2. 08:35:00 - 09:20:00"},
+        {"Stunde": "3. 09:40:00 - 10:25:00"},
+        {"Stunde": "4. 10:30:00 - 11:15:00"},
+        {"Stunde": "5. 11:40:00 - 12:25:00"},
+    ]
+    events = [
+        event(),
+        event("08:35", "09:20", "M", ""),
+        event("09:40", "10:25", "E", ""),
+        event("10:30", "11:15", "M", ""),
+        event("11:40", "12:25", "E", ""),
+    ]
+    raws = [raw(), raw("2", "M"), raw("3", "E"), raw("4", "M"), raw("5", "E")]
+    items, _, _ = normal(events, raws, plan)
+    breaks = [(item.start[11:16], item.end[11:16]) for item in items if item.kind == "break"]
+    assert breaks == [("09:20", "09:40"), ("11:15", "11:40")]
+
+
+def test_explicit_break_wins_over_inferred_gap():
+    plan = [
+        {"Stunde": "2. 08:35:00 - 09:20:00"},
+        {"Stunde": "große Pause. 09:20:00 - 09:40:00"},
+        {"Stunde": "3. 09:40:00 - 10:25:00"},
+    ]
+    items, _, _ = normal([
+        event("08:35", "09:20", "M", ""),
+        event("09:40", "10:25", "E", ""),
+    ], [raw("2", "M"), raw("3", "E")], plan)
+    breaks = [item for item in items if item.kind == "break"]
+    assert len(breaks) == 1 and breaks[0].period == "große Pause"
+
+
 def test_existing_calendar_pause_is_not_duplicated():
     plan = PLAN + [{"Stunde": "3. 09:40:00 - 10:25:00"}]
     items, _, _ = normal([

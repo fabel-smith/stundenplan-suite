@@ -13,6 +13,7 @@ from .model import Lesson, payload
 # The upstream integration polls hourly. Allow one interval plus 15 minutes
 # scheduling grace; rereading the HA entity must never extend this deadline.
 SOURCE_MAX_AGE = timedelta(minutes=75)
+MIN_INFERRED_BREAK_MINUTES = 10
 
 TYPE_MAP = {
     "regularLesson": ("lesson", "scheduled", []),
@@ -48,14 +49,36 @@ def period_times(plan: list[dict]) -> dict[tuple[str, str], str]:
 
 
 def plan_break_slots(plan: list[dict]) -> list[tuple[str, str, str]]:
-    """Return explicit break slots from the upstream weekly period table."""
-    slots = []
+    """Return explicit and safely inferred breaks from the period table."""
+    explicit = []
+    lessons = []
     for row in plan:
         label = str(row.get("Stunde", ""))
         match = re.match(r"^(.*?)\.\s+(\d{2}:\d{2})(?::\d{2})?\s*[-–]\s*(\d{2}:\d{2})(?::\d{2})?$", label)
-        if match and ("pa" in match[1].lower() or "pause" in match[1].lower()):
-            slots.append((match[1], match[2], match[3]))
-    return slots
+        if not match:
+            continue
+        slot = (match[1], match[2], match[3])
+        if "pa" in match[1].lower() or "pause" in match[1].lower():
+            explicit.append(slot)
+        else:
+            lessons.append(slot)
+
+    def minutes(value: str) -> int:
+        hour, minute = (int(part) for part in value.split(":"))
+        return hour * 60 + minute
+
+    inferred = []
+    ordered_slots = sorted(set(lessons), key=lambda item: (minutes(item[1]), minutes(item[2])))
+    for previous, following in zip(ordered_slots, ordered_slots[1:]):
+        gap_start, gap_end = previous[2], following[1]
+        if minutes(gap_end) - minutes(gap_start) < MIN_INFERRED_BREAK_MINUTES:
+            continue
+        # An explicit break within the same gap is more authoritative.
+        if any(minutes(start) >= minutes(gap_start) and minutes(end) <= minutes(gap_end)
+               for _, start, end in explicit):
+            continue
+        inferred.append(("Pause", gap_start, gap_end))
+    return sorted(explicit + inferred, key=lambda item: (minutes(item[1]), minutes(item[2])))
 
 
 def add_missing_plan_breaks(lessons: list[Lesson], plan: list[dict], zone) -> None:

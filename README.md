@@ -136,8 +136,9 @@ Wähle für dasselbe Kind:
 
 Verwende den Stundenplankalender des Kindes, nicht den allgemeinen Schulkalender.
 Die Suite erzeugt daraus einen eigenen `*_woche`-Sensor für die Karte. Pausen, die
-im Kalender fehlen, aber im Stundenraster ausdrücklich vorhanden sind, werden
-automatisch als Pausenzeilen ergänzt.
+im Kalender fehlen, werden aus dem Stundenraster ergänzt. Neben ausdrücklich als
+Pause bezeichneten Zeilen erkennt die Suite auch Lücken ab 10 Minuten zwischen
+zwei Unterrichtszeiten. Kürzere Wechselzeiten werden nicht als Pause angezeigt.
 
 Vom Schulmanager gemeldete Ausfälle und Änderungen werden als strukturierte
 `cell_styles` an die Karte übergeben. Ausfälle erscheinen rot, Änderungen gelb.
