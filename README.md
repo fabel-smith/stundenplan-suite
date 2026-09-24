@@ -32,49 +32,48 @@ Kurz gesagt:
 
 > **Merksatz:**  
 > **Suite = Daten + Logik**  
-> **Card = Anzeige**
+> **Card = Anzeige + manueller Editor**
 
 ---
 
 ## Wann brauchst du die Suite?
 
-Du brauchst die **stundenplan-suite**, wenn du:
+Die **stundenplan-suite** übernimmt die automatische Datenaufbereitung für die
+Karte, wenn du **stundenplan24.de** oder eine vorhandene
+**Schulmanager-Online-Integration** als Quelle verwenden möchtest.
 
-- deinen Stundenplan **nicht manuell pflegen** willst
-- **stundenplan24.de** oder **Schulmanager Online** nutzt
-- A/B-Wochen automatisch umschalten möchtest
-- saubere Entities in Home Assistant haben willst
-
-Du brauchst sie **nicht**, wenn du:
-- nur eine manuelle Tabelle anzeigen möchtest → **stundenplan-card**
+Du brauchst sie **nicht**, wenn du deinen Plan im Karteneditor manuell pflegst
+oder bereits einen passenden JSON-Sensor hast. **Manuelle A/B-Wechselwochen**
+mit automatischer Umschaltung nach Kalenderwoche unterstützt die Karte selbst.
 
 ---
 
-## 🔄 Wechsel von der stundenplan-card (Migration)
+## Wechsel von manuellen Daten zur automatischen Quelle
 
-Du nutzt bereits die **stundenplan-card** mit manuellen Daten  
-(JSON-Dateien + REST-Sensor)?
-
-Der Umstieg auf die **stundenplan-suite** ist einfach:
+Du nutzt die **stundenplan-card** mit manuell eingetragenen Stunden oder einem
+eigenen JSON-/REST-Sensor und möchtest künftig Daten aus **Stundenplan24** oder
+**Schulmanager Online** übernehmen? Die Karte bleibt dabei erhalten.
 
 ### Kurzfassung
-- Die Suite ersetzt **JSON + REST-Sensor**
+- Die Suite bereitet die Daten einer unterstützten Quelle als Wochensensor auf
 - Die Card bleibt als Anzeige bestehen
+- Vorhandene manuelle Pläne oder JSON-Dateien werden nicht in die Suite importiert
 
 ### Schritte
 1. **stundenplan-suite** über HACS installieren  
 2. Home Assistant neu starten  
-3. Integration konfigurieren  
-4. In der Card den neuen Sensor auswählen
+3. Die gewünschte Quelle konfigurieren; bei Schulmanager muss dessen Integration bereits eingerichtet sein
+4. In der Card unter **Datenquellen → Stundenplan Suite (Integration)** den neuen Wochensensor auswählen
 
 ### Optional aufräumen
-Nach erfolgreichem Umstieg kannst du:
-- manuelle JSON-Dateien löschen
-- REST-Sensoren entfernen
+Nach erfolgreichem Umstieg kannst du nicht mehr benötigte JSON-Dateien oder
+REST-Sensoren entfernen. Prüfe vorher, ob andere Karten oder Automationen sie
+noch verwenden, und sichere deine bisherige Konfiguration.
 
 > **Wichtig:**  
-> Nicht beides parallel betreiben (Suite **oder** manuell).
-> Entweder stundenplan-suite ODER manuelle JSON + REST-Sensor – niemals beides gleichzeitig.
+> Jede Karte verwendet die dort ausgewählte Datenquelle. Mehrere Karten mit
+> unterschiedlichen Quellen können problemlos nebeneinander genutzt werden,
+> beispielsweise ein manueller Plan für ein Kind und ein Suite-Plan für ein anderes.
 
 
 ## Architektur (vereinfacht)
@@ -168,11 +167,15 @@ Beispiel:
 
 ```yaml
 type: custom:stundenplan-card
-entity: sensor.stundenplan24_week_rows_ha
+source_type: entity
+source_entity: sensor.stundenplan24_week_rows_ha
 ```
 
+Ersetze die Beispiel-Entity durch den tatsächlichen Wochensensor deiner Suite.
+
 > **Wichtig:**  
-> Bei Nutzung der Suite **keine** eigenen JSON-Dateien und **keine** REST-Sensoren anlegen.
+> Für die Suite-Anbindung sind **keine** zusätzlichen JSON-Dateien oder
+> REST-Sensoren erforderlich. Unabhängige JSON-/REST-basierte Karten kannst du weiter nutzen.
 
 ### JSON-Vertrag für Zellfarben
 
