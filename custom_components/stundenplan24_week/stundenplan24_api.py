@@ -3,11 +3,49 @@ from __future__ import annotations
 import asyncio
 import time
 import datetime as _dt
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
+import math
 import aiohttp
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 BASE = "https://www.stundenplan24.de"
+HTTP_STATE_KEY = "stundenplan24_week_http"
+CACHE_SECONDS = 30
+CACHE_LIMIT = 128
+REQUEST_SPACING = 0.5
+
+
+class Stundenplan24RequestBlocked(Exception):
+    """Stop all endpoint fallbacks when access or service availability fails."""
+
+
+@dataclass
+class _RequestGate:
+    # Shared across entries: several children must not multiply concurrent traffic.
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    next_request: float = 0
+    blocked_until: float = 0
+    reason: str = ""
+    rate_failures: int = 0
+
+
+def retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        delay = float(value)
+    except ValueError:
+        try:
+            stamp = parsedate_to_datetime(value)
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=_dt.timezone.utc)
+            delay = stamp.timestamp() - time.time()
+        except (ValueError, TypeError, OverflowError):
+            return None
+    return max(1.0, delay) if math.isfinite(delay) else None
 
 def ymd(day) -> str:
     """Return YYYYMMDD for various day representations (date/datetime/str)."""
@@ -37,9 +75,24 @@ class Stundenplan24Api:
         self._hass = hass
         self._auth = aiohttp.BasicAuth(username, password)
         self._timeout = aiohttp.ClientTimeout(total=timeout_s)
+        self._gate = hass.data.setdefault(HTTP_STATE_KEY, _RequestGate())
+        self._access_error: str | None = None
+        self._cache: OrderedDict[tuple, tuple[float, str]] = OrderedDict()
+
+    def raise_if_blocked(self) -> None:
+        if self._access_error:
+            raise Stundenplan24RequestBlocked(self._access_error)
+        remaining = self._gate.blocked_until - time.monotonic()
+        if remaining > 0:
+            raise Stundenplan24RequestBlocked(
+                f"{self._gate.reason} Erneuter Abruf fruehestens in {math.ceil(remaining)} Sekunden."
+            )
+
+    def _cooldown(self, seconds: float, reason: str) -> None:
+        self._gate.blocked_until = max(self._gate.blocked_until, time.monotonic() + seconds)
+        self._gate.reason = reason
 
     def _base_headers(self) -> dict[str, str]:
-        # Stundenplan24 blocks some requests unless they look like a browser.
         return {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -48,6 +101,7 @@ class Stundenplan24Api:
             ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+            # Revalidate upstream caches without generating a new URL for every request.
             "Cache-Control": "no-cache",
         }
 
@@ -59,29 +113,64 @@ class Stundenplan24Api:
         if xhr:
             headers["X-Requested-With"] = "XMLHttpRequest"
 
-        last_err: Exception | None = None
-        for _ in range(2):  # retry once
-            try:
-                async with session.get(
-                    url,
-                    auth=self._auth,
-                    timeout=self._timeout,
-                    headers=headers,
-                ) as resp:
-                    resp.raise_for_status()
-                    return await resp.text()
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                last_err = e
-        raise last_err or RuntimeError("Fetch fehlgeschlagen")
+        key = (url, referer, xhr)
+        async with self._gate.lock:
+            self.raise_if_blocked()
+            cached = self._cache.get(key)
+            if cached and cached[0] > time.monotonic():
+                self._cache.move_to_end(key)
+                return cached[1]
+            for attempt in range(2):
+                await asyncio.sleep(max(0, self._gate.next_request - time.monotonic()))
+                self.raise_if_blocked()
+                try:
+                    async with session.get(url, auth=self._auth, timeout=self._timeout, headers=headers) as resp:
+                        if resp.status in (401, 403):
+                            self._access_error = (
+                                f"Stundenplan24 verweigert den Zugriff (HTTP {resp.status}). "
+                                "Zugangsdaten und Berechtigung pruefen; danach Integration neu laden."
+                            )
+                            self.raise_if_blocked()
+                        if resp.status in (429, 503):
+                            self._gate.rate_failures += 1
+                            fallback = min(3600, 60 * 2 ** min(self._gate.rate_failures - 1, 6))
+                            self._cooldown(
+                                retry_after_seconds(resp.headers.get("Retry-After")) or fallback,
+                                f"Stundenplan24 begrenzt Abrufe oder ist voruebergehend nicht verfuegbar (HTTP {resp.status}).",
+                            )
+                            self.raise_if_blocked()
+                        resp.raise_for_status()
+                        result = await resp.text()
+                        self._gate.rate_failures = 0
+                        self._cache[key] = (time.monotonic() + CACHE_SECONDS, result)
+                        self._cache.move_to_end(key)
+                        while len(self._cache) > CACHE_LIMIT:
+                            self._cache.popitem(last=False)
+                        return result
+                except aiohttp.ClientResponseError as err:
+                    # Missing optional files may use another endpoint, but are not retried.
+                    if err.status < 500:
+                        raise
+                    if attempt:
+                        self._cooldown(60, "Stundenplan24 meldet wiederholt einen Serverfehler.")
+                        self.raise_if_blocked()
+                except (aiohttp.ClientError, asyncio.TimeoutError):
+                    if attempt:
+                        self._cooldown(60, "Stundenplan24 ist derzeit nicht erreichbar.")
+                        self.raise_if_blocked()
+                finally:
+                    self._gate.next_request = time.monotonic() + REQUEST_SPACING
+                await asyncio.sleep(2)
+        raise RuntimeError("Fetch fehlgeschlagen")
 
     # ----------------------------
     # URL builder helpers
     # ----------------------------
     def url_vplan_kl_xml(self, school_id: str) -> str:
-        return f"{BASE}/{school_id}/vplan/vdaten/VplanKl.xml?_={int(time.time()*1000)}"
+        return f"{BASE}/{school_id}/vplan/vdaten/VplanKl.xml"
 
     def url_vplan_kl_day_xml(self, school_id: str, day) -> str:
-        return f"{BASE}/{school_id}/vplan/vdaten/VplanKl{ymd(day)}.xml?_={int(time.time()*1000)}"
+        return f"{BASE}/{school_id}/vplan/vdaten/VplanKl{ymd(day)}.xml"
 
     def url_mobil_plan_kl_day(self, school_id: str, day) -> str:
         return f"{BASE}/{school_id}/mobil/mobdaten/PlanKl{ymd(day)}.xml"
@@ -130,9 +219,11 @@ class Stundenplan24Api:
         """Fetch Wochenplan Online day XML used by the browser week view."""
         try:
             return await self.fetch_text(self.url_wplan_day_xml(school_id, day), referer=self.url_wplan_root(school_id), xhr=False)
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception:
             return await self.fetch_mobil_wplan_kl_day_xml(school_id, day)
 
     async def fetch_wplan_html(self, school_id: str, day=None) -> str:
-        # Important: Referer must point to /wplan/ for some schools, plus browser-like UA.
+        # Some schools require the Wochenplan page as the referer.
         return await self.fetch_text(self.url_wplan_html(school_id, day), referer=self.url_wplan_root(school_id), xhr=False)

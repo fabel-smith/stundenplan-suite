@@ -209,7 +209,59 @@ Die Suite erzeugt diese Angaben für unterstützte Statusinformationen automatis
 ## Support & Hinweise
 
 - Änderungen an Stundenplan24 oder an der inoffiziellen Schulmanager-Schnittstelle können Anpassungen erfordern
-- Bei Problemen bitte ein **GitHub Issue** erstellen (gern mit Log-Auszug)
+- Bei Problemen bitte ein **GitHub Issue** mit einem kleinen, anonymisierten Beispiel erstellen. Keine Passwörter, Tokens, vollständigen HA-Konfigurationen, echten Namen oder ungeschwärzten Schulpläne veröffentlichen. Auch Logs können Schulnummern, Entitäten und personenbezogene Angaben enthalten.
+- Sicherheitsprobleme bitte nicht mit vertraulichen Details öffentlich melden; siehe [SECURITY.md](SECURITY.md).
+
+### Schonender Abruf bei Stundenplan24
+
+Ein Update kann mehrere Anfragen für die angezeigte und benachbarte Wochen
+auslösen. Kurze Intervalle und mehrere Kinder können zu Zugriffsbeschränkungen
+oder IP-Sperren führen. Ein garantiert sperrsicheres Intervall gibt es nicht.
+Der bisherige Standard von 360 Minuten und deine gespeicherten Einstellungen
+bleiben unverändert. Beachte die Vorgaben deiner Schule und des Anbieters.
+
+Die Suite begrenzt Stundenplan24-Abrufe gemeinsam innerhalb einer HA-Instanz
+auf eine gleichzeitige Anfrage mit mindestens einer halben Sekunde Abstand
+nach deren Abschluss. Identische erfolgreiche Antworten werden pro Zugang
+für maximal 30 Sekunden wiederverwendet; andere Kinder/Zugänge erhalten
+dadurch keine fremden Daten.
+
+Bei HTTP 429 oder 503 wird `Retry-After` berücksichtigt. Fehlt ein gültiger Wert,
+beginnt die gemeinsame Wartezeit bei 60 Sekunden und steigt bei wiederholter
+Begrenzung bis auf eine Stunde. Ein neuer Versuch erfolgt erst bei einer
+Aktualisierung nach Ablauf dieser Wartezeit. Netzwerkfehler und andere
+Serverfehler werden einmal mit Verzögerung wiederholt; danach gilt eine
+Wartezeit von 60 Sekunden. Fehlende optionale Dateien (HTTP 404) können
+weiterhin über die vorhandenen alternativen Endpunkte gesucht werden.
+
+Bei HTTP 401 oder 403 stoppen weitere Abrufe für diese Konfiguration.
+Prüfe Zugangsdaten und Berechtigung, kläre eine mögliche Sperre und lade die
+Integration erst danach neu. Schutzmaßnahmen werden nicht umgangen.
+Solche Fehler werden als fehlgeschlagene Aktualisierung gemeldet, nicht als
+leerer Stundenplan. Die Anwendung kann dann vorübergehend nicht verfügbar sein.
+
+Für Schulmanager liest die Suite vorhandene HA-Entitäten und verwendet den
+Kalenderdienst der vorgelagerten Integration. Deren Abrufverhalten wird hier
+nicht gesteuert.
+
+### Unabhängiges Projekt und Datenschutz
+
+Die Stundenplan Suite ist ein unabhängiges Community-Projekt. Sie ist kein
+offizielles Produkt von Home Assistant, Indiware/Stundenplan24 oder Schulmanager
+Online und behauptet keine Partnerschaft mit diesen Anbietern. Die Namen dienen
+der Beschreibung der kompatiblen Quellen.
+
+Verwende nur Daten und Zugänge, zu deren Nutzung du berechtigt bist. Die
+Projektlizenz erteilt keine Nutzungsrechte an Diensten, Schulplänen oder fremden
+Inhalten. Die Suite übermittelt keine Stundenpläne an den Projektbetreiber.
+Deine eigene HA-Installation und Backups müssen vor unbefugtem Zugriff geschützt
+werden. Prüfe wichtige Unterrichtsänderungen im Zweifel an der Originalquelle.
+
+### Lizenz
+
+Der eigene Code steht unter der [MIT-Lizenz](LICENSE). Home Assistant und
+separat installierte Bibliotheken oder Integrationen behalten ihre jeweiligen
+Lizenzen. Zwingende gesetzliche Rechte bleiben unberührt.
 
 ---
 

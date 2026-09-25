@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .parser import parse_plan_klassen_xml
 from .parser_wplan import parse_wplan_day_xml_lessons, parse_wplan_xml
 from .parser_wplan_html import parse_wplan_html_to_rows
-from .stundenplan24_api import Stundenplan24Api
+from .stundenplan24_api import Stundenplan24Api, Stundenplan24RequestBlocked
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -357,6 +357,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 referer=f"https://www.stundenplan24.de/{self.school_id}/mobil/",
                 xhr=False,
             )
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception as err:
             _LOGGER.debug("mobil Plan fetch failed %s: %s", ymd(day_dt), err)
             return [], ""
@@ -388,6 +390,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """
         try:
             xml_text = await self.api.fetch_vplan_kl_day_xml(self.school_id, day_dt)
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception as err:
             _LOGGER.debug("vplan fetch failed %s: %s", ymd(day_dt), err)
             return [], "", False
@@ -415,6 +419,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Optional: mobil WPlanKlYYYYMMDD.xml als Zusatzinfos."""
         try:
             xml_text = await self.api.fetch_wplan_day_xml(self.school_id, day_dt)
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception:
             return {}
 
@@ -431,6 +437,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Future-week overlay from Wochenplan Online day XML."""
         try:
             xml_text = await self.api.fetch_wplan_day_xml(self.school_id, day_dt)
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception as err:
             _LOGGER.debug("wplan day fetch failed %s: %s", ymd(day_dt), err)
             return [], "", False
@@ -468,6 +476,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 referer=f"https://www.stundenplan24.de/{self.school_id}/wplan/plan.html",
                 xhr=True,
             )
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception as err:
             _LOGGER.debug("Indiware basis fetch failed: %s", err)
             self._indiware_basis_cache = None
@@ -613,6 +623,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 if xml_text and "<splan" in xml_text:
                     used_sw = sw
                     break
+            except Stundenplan24RequestBlocked:
+                raise
             except Exception as err:
                 last_err = str(err)
                 # try earlier
@@ -937,6 +949,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Fetch Stundenplan24 weekly HTML and map it to exact day/hour cells."""
         try:
             html_text = await self.api.fetch_wplan_html(self.school_id, monday_dt)
+        except Stundenplan24RequestBlocked:
+            raise
         except Exception:
             return {}
 
@@ -986,6 +1000,7 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 # -------- Update --------
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
+            self.api.raise_if_blocked()
             today = datetime.now()
             monday = monday_of_week(today) + timedelta(weeks=int(self.week_offset))
             day_dates = weekdays_for_monday(monday)  # Mo..Fr
@@ -1225,6 +1240,8 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                                 "week_offset": int(self.week_offset),
                             }
                             return {"rows": wrows, "rows_table": rows_table, "meta": meta}
+                    except Stundenplan24RequestBlocked:
+                        raise
                     except Exception as err:
                         _LOGGER.debug("WPlan HTML fallback failed: %s", err)
                 return {

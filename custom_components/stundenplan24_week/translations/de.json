@@ -47,7 +47,7 @@
     "step": {
       "init": {
         "title": "Optionen",
-        "description": "Anzeige, Datenquellen und Aktualisierungsintervall einstellen.",
+        "description": "Anzeige, Datenquellen und Aktualisierungsintervall einstellen. Bei Stundenplan24 kann ein Update mehrere Serveranfragen auslösen. Kurze Intervalle und mehrere Kinder können zu Zugriffsbeschränkungen oder IP-Sperren führen. Wähle das Intervall nur so kurz wie nötig und beachte die Vorgaben deiner Schule bzw. des Anbieters. Es gibt kein garantiert sperrsicheres Intervall. Bei Schulmanager nutzt die Suite vorhandene Home-Assistant-Entitäten.",
         "data": {
           "show_room": "Raum anzeigen",
           "show_teacher": "Lehrer anzeigen",
