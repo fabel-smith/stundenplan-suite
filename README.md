@@ -121,10 +121,18 @@ Gib die Zugangsdaten und den gewünschten Stundenplan im Konfigurationsdialog an
 
 #### Schulmanager Online
 
-Voraussetzung ist die installierte benutzerdefinierte Integration
-[Schulmanager Online](https://github.com/rwunsch/schulmanager-online-hass).
+Voraussetzung ist die eingerichtete benutzerdefinierte Integration
+[Schulmanager Online von MrIcemanLE](https://github.com/MrIcemanLE/Schulmanager-homeassistant)
+(Integrations-Domain `schulmanager`, geprüft anhand des Quellcodes von Version 0.10.2).
 Die Suite benötigt keine zusätzlichen Schulmanager-Zugangsdaten, sondern liest die
 bereits in Home Assistant vorhandenen Entitäten.
+
+**Wichtig bei ähnlich benannten Integrationen:** Das separate Projekt
+[Schulmanager Online von rwunsch](https://github.com/rwunsch/schulmanager-online-hass)
+verwendet die Domain `schulmanager_online`. Seine Entitäten werden im aktuellen
+Suite-Einrichtungsdialog nicht angeboten. Es ist daher derzeit kein direkt
+austauschbarer Ersatz; eine vollständige Anbindung ist nicht bestätigt.
+Der bisherige Link in dieser Anleitung war falsch.
 
 Wähle für dasselbe Kind:
 
@@ -132,6 +140,11 @@ Wähle für dasselbe Kind:
 - die Sensoren für heute und morgen,
 - den Wochen-Sensor,
 - optional den Änderungssensor.
+
+Falls die Auswahl leer bleibt, prüfe zuerst, ob die Integration von MrIcemanLE
+eingerichtet ist und die Entitäten des Kindes verfügbar sind. Die Suite filtert
+die Auswahl nach der Integration `schulmanager`; ein bloßes Umbenennen von
+Entitäten einer anderen Integration ändert diese Zuordnung nicht.
 
 Verwende den Stundenplankalender des Kindes, nicht den allgemeinen Schulkalender.
 Die Suite erzeugt daraus einen eigenen `*_woche`-Sensor für die Karte. Pausen, die
