@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from stundenplan24_week.model import Lesson, card_rows, compact_week_attributes, day_summary, payload
-from stundenplan24_week.schulmanager import SchulmanagerProvider, normalize, period_times
+from stundenplan24_week.schulmanager import SchulmanagerProvider, normalize, normalize_period, period_times
 
 ZONE = timezone(timedelta(hours=2))
 DAY = date(2026, 9, 17)
@@ -170,6 +170,63 @@ def test_unknown_type_not_ready():
     assert not day_summary(items, DAY, verified=bool(verified))["routine_ready"]
 
 
+def test_changed_lesson_keeps_attendance_and_change_style_without_guessing_reason():
+    items, verified, issues = normal(
+        [event(desc="Lehrer: T1\nRaum: R1\nTyp: changedLesson")],
+        [raw(kind="changedLesson")],
+    )
+    assert verified == {str(DAY)} and issues == []
+    assert (items[0].kind, items[0].status) == ("lesson", "changed")
+    assert items[0].changes == []
+    summary = day_summary(items, DAY, verified=True)
+    assert summary["school_day"] == "yes" and summary["routine_ready"]
+    assert summary["first_start"].endswith("07:45:00+02:00")
+    assert summary["last_end"].endswith("08:30:00+02:00")
+    assert summary["has_changes"] and summary["subjects"] == ["Deutsch"]
+    rows, _ = card_rows(items, date(2026, 9, 14))
+    assert "(ge\u00e4ndert)" in rows[0]["cells"][3]
+    assert rows[0]["cell_styles"][3]["bg"] == "#f9a825"
+
+
+def test_changed_lesson_conflicting_raw_data_still_blocks_routine():
+    items, verified, issues = normal(
+        [event(desc="Typ: changedLesson")], [raw(subject="M", kind="changedLesson")],
+    )
+    assert not verified and "calendar_raw_disagreement" in issues
+    assert not day_summary(items, DAY, verified=bool(verified))["routine_ready"]
+
+
+@pytest.mark.parametrize("hour", [1, "1", "1.", " 1. "])
+def test_period_formats_match_raw_data_without_changing_lesson_identity(hour):
+    items, verified, issues = normal([event()], [raw(hour)])
+    reference, _, _ = normal([event()], [raw("1")])
+    assert verified == {str(DAY)} and issues == []
+    assert items[0].to_dict() == reference[0].to_dict()
+    assert day_summary(items, DAY, verified=True)["routine_ready"]
+
+
+@pytest.mark.parametrize("value,expected", [
+    (5, "5"), ("5", "5"), ("5.", "5"), (" 5. ", "5"),
+    ("MP", "MP"), ("*1.gr.Pa.", "*1.gr.Pa."),
+    ("1..", "1.."), ("1.0", "1.0"),
+    (None, ""), (True, ""), (1.0, ""),
+])
+def test_period_normalization_only_removes_numeric_ordinal_dot(value, expected):
+    assert normalize_period(value) == expected
+
+
+@pytest.mark.parametrize("hour", [None, "", True, 1.0, "1.0", "1..", "MP"])
+def test_invalid_or_different_period_does_not_match_raw_data(hour):
+    items, verified, _ = normal([event()], [raw(hour)])
+    assert not verified
+    assert not day_summary(items, DAY, verified=bool(verified))["routine_ready"]
+
+
+def test_period_normalization_preserves_parallel_ambiguity():
+    _, verified, issues = normal([event()], [raw("1"), raw("1.", "M")])
+    assert not verified and "ambiguous_parallel_lessons" in issues
+
+
 def test_all_cancelled_known_vs_unverified():
     items, _, _ = normal([event(summary="X D", desc="Typ: cancelledLesson")], [raw(kind="cancelledLesson")])
     assert day_summary(items, DAY, verified=True)["school_day"] == "no"
@@ -283,6 +340,61 @@ def provider_fixture():
               "sensor.week":SimpleNamespace(state="KW38", attributes={"plan":PLAN})}
     services = FakeServices({"calendar.child":{"events":[event()]}})
     return SchulmanagerProvider(SimpleNamespace(states=states, services=services), config)
+
+
+@pytest.mark.parametrize("hour", [1, "1", "1.", " 1. "])
+@pytest.mark.parametrize("offset", [0, 1])
+def test_provider_matches_change_details_by_normalized_period_and_date(hour, offset):
+    p = provider_fixture()
+    tomorrow = DAY + timedelta(days=1)
+    for entity, day in (("sensor.today", DAY), ("sensor.tomorrow", tomorrow)):
+        p.hass.states[entity] = SimpleNamespace(state="Plan", attributes={
+            "raw": {"lessons": [raw(kind="changedLesson", day=day)],
+                    "date": (NOW + timedelta(days=(day - DAY).days)).isoformat()}})
+    p.hass.services.response["calendar.child"]["events"] = [
+        event(desc="Lehrer: T1\nRaum: R1\nTyp: changedLesson", day=day)
+        for day in (DAY, tomorrow)
+    ]
+    p.config["changes_entity"] = "sensor.changes"
+    key = "today" if offset == 0 else "tomorrow"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {key: [{"date": str(DAY + timedelta(days=offset)), "hour": hour,
+                           "original_subject": "D", "original_teacher": "T0",
+                           "original_room": "R0", "reason": "Raumwechsel",
+                           "note": "Bitte beachten"}]}})
+    data = asyncio.run(p.fetch(DAY - timedelta(days=DAY.weekday()), NOW))
+    matching = data["daily"][key]
+    other = data["daily"]["tomorrow" if offset == 0 else "today"]
+    assert matching["routine_ready"]
+    assert matching["lessons"][0]["original"] == {"subject": "D", "teacher": "T0", "room": "R0"}
+    assert matching["lessons"][0]["notes"] == ["Raumwechsel", "Bitte beachten"]
+    assert other["lessons"][0]["original"] is None
+    assert other["lessons"][0]["notes"] == []
+
+
+@pytest.mark.parametrize("hour", [None, "", True, 1.0, "1.0", "1..", "2", "MP"])
+def test_provider_does_not_attach_changes_to_wrong_or_invalid_period(hour):
+    p = provider_fixture()
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": hour,
+                               "original_room": "R0", "note": "Wrong period"}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    assert data["lessons"][0]["original"] is None
+    assert data["lessons"][0]["notes"] == []
+
+
+def test_provider_missing_period_on_both_sides_does_not_match():
+    p = provider_fixture()
+    p.hass.states["sensor.week"].attributes["plan"] = []
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": "",
+                               "original_room": "R0", "note": "Unassigned"}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    assert data["lessons"][0]["period"] == ""
+    assert data["lessons"][0]["original"] is None
+    assert data["lessons"][0]["notes"] == []
 
 
 def test_provider_calls_only_read_service_and_keeps_today_when_browsing():

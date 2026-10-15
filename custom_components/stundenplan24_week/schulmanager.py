@@ -17,6 +17,8 @@ MIN_INFERRED_BREAK_MINUTES = 10
 
 TYPE_MAP = {
     "regularLesson": ("lesson", "scheduled", []),
+    # This type alone does not identify which field changed.
+    "changedLesson": ("lesson", "changed", []),
     "cancelledLesson": ("lesson", "cancelled", ["cancellation"]),
     "substitution": ("lesson", "changed", ["substitution"]),
     "teacherChange": ("lesson", "changed", ["teacher"]),
@@ -26,6 +28,14 @@ TYPE_MAP = {
     "exam": ("lesson", "changed", ["exam"]),
     "event": ("event", "scheduled", []),
 }
+
+
+def normalize_period(value: Any) -> str:
+    """Match numeric hours with an optional ordinal dot; keep named slots intact."""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    text = str(value).strip()
+    return text[:-1] if re.fullmatch(r"[0-9]+\.", text) else text
 
 
 def parse_time(value: Any, zone) -> datetime | None:
@@ -44,7 +54,7 @@ def period_times(plan: list[dict]) -> dict[tuple[str, str], str]:
         label = str(row.get("Stunde", ""))
         m = re.match(r"^(.*?)\.\s+(\d{2}:\d{2})(?::\d{2})?\s*[-–]\s*(\d{2}:\d{2})(?::\d{2})?$", label)
         if m:
-            out[(m[2], m[3])] = m[1]
+            out[(m[2], m[3])] = normalize_period(m[1])
     return out
 
 
@@ -139,7 +149,8 @@ def normalize(events: list[dict], raw_days: dict[str, list[dict]], plan: list[di
             title = title[:-(len(room) + 3)]
         period = slots.get((start.strftime("%H:%M"), end.strftime("%H:%M")), "")
         raw_list = raw_days.get(day, [])
-        candidates = [(i, x) for i, x in enumerate(raw_list) if str(x.get("hour", "")) == period and period]
+        candidates = [(i, x) for i, x in enumerate(raw_list)
+                      if period and normalize_period(x.get("hour")) == period]
         # Replacement wins over cancellation only when exactly one active item exists.
         active = [(i, x) for i, x in candidates if x.get("type") != "cancelledLesson"]
         chosen = active if active else candidates
@@ -252,8 +263,11 @@ class SchulmanagerProvider:
                 for change in entries if isinstance(entries, list) else []:
                     if not isinstance(change, dict):
                         continue
+                    period = normalize_period(change.get("hour"))
+                    if not period:
+                        continue
                     for lesson in lessons:
-                        if lesson.date == change.get("date") and lesson.period == str(change.get("hour", "")):
+                        if lesson.date == change.get("date") and lesson.period == period:
                             original = {key: change.get("original_" + key) for key in ("subject", "teacher", "room") if change.get("original_" + key)}
                             if original:
                                 lesson.original = original
