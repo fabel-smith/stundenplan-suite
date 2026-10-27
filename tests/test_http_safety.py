@@ -3,7 +3,7 @@ import asyncio
 import importlib
 import sys
 import types
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 
 import aiohttp
@@ -247,4 +247,116 @@ def test_blocked_update_is_failure_not_an_empty_timetable(network):
         with pytest.raises(n.update.UpdateFailed):
             await coordinator._async_update_data()
         assert len(n.session.calls) == 1
+    asyncio.run(scenario())
+
+
+@pytest.fixture
+def bounded_provider(network, monkeypatch):
+    """Run the real formatter and capture adapter with deterministic day bundles."""
+    n = network
+    state = types.SimpleNamespace(now=datetime(2026, 10, 26, 7, tzinfo=timezone.utc),
+                                  calls=[], empty=False, fail_day=None)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return state.now.astimezone(tz) if tz else state.now.replace(tzinfo=None)
+
+    async def bundle(self, week_monday, day_dt, use_current_week_mode):
+        day = day_dt.date()
+        state.calls.append((day, week_monday.date(), use_current_week_mode))
+        if day == state.fail_day:
+            raise n.api.Stundenplan24RequestBlocked("test blocked")
+        base = [] if state.empty else [(1, f"Subject {day}", "T", "R", "08:00", "08:45")]
+        return base, [], "2026-10-26 06:00", bool(base)
+
+    monkeypatch.setattr(n.coordinator, "datetime", Clock)
+    monkeypatch.setattr(n.coordinator.SPlanCoordinator, "_fetch_day_bundle", bundle)
+    monkeypatch.delitem(sys.modules, "stundenplan24_week.providers", raising=False)
+    providers = importlib.import_module("stundenplan24_week.providers")
+    entry = types.SimpleNamespace(data={"school_id": "example", "target": "Demo"},
+                                  options={"wplan_enabled": False, "show_teacher": True})
+    state.provider = providers.Stundenplan24Provider(n.hass, entry)
+    state.legacy = n.coordinator.SPlanCoordinator(n.hass, entry)
+    return state
+
+
+@pytest.mark.parametrize("weekday", range(7))
+@pytest.mark.parametrize("offset", [-3, -1, 0, 1, 3])
+def test_suite_fetches_only_selected_week_and_daily_sensor_dates(bounded_provider, network, weekday, offset):
+    from stundenplan24_week.model import compact_week_attributes
+
+    async def scenario():
+        s = bounded_provider
+        s.now += timedelta(days=weekday)
+        monday = date(2026, 10, 26) + timedelta(weeks=offset)
+        selected = {monday + timedelta(days=i) for i in range(5)}
+        daily = {s.now.date() + timedelta(days=i) for i in (0, 1)
+                 if (s.now.date() + timedelta(days=i)).weekday() < 5}
+        result = await s.provider.fetch(monday, s.now)
+        calls = s.calls.copy()
+        assert {day for day, _, _ in calls} == selected | daily
+        assert len(calls) == len(selected | daily) <= 7
+        for day, week, current_mode in calls:
+            assert week == day - timedelta(days=day.weekday())
+            assert current_mode == (day in selected)
+        for label, delta in (("today", 0), ("tomorrow", 1)):
+            day = s.now.date() + timedelta(days=delta)
+            summary = result["daily"][label]
+            assert summary["date"] == day.isoformat()
+            assert summary["subjects"] == ([f"Subject {day}"] if day in daily else [])
+            assert summary["routine_ready"] is False
+            assert summary["coverage"] == "unverified"
+        assert {item["date"] for item in result["lessons"]} == {d.isoformat() for d in selected | daily}
+
+        # Old standalone coordinator keeps its contract; Suite card fields match.
+        s.calls.clear()
+        s.legacy.week_offset = offset
+        original = await s.legacy._async_update_data()
+        assert len(s.calls) == 25
+        assert result["rows"] == original["rows"]
+        before = compact_week_attributes(original)
+        after = compact_week_attributes(result)
+        assert after["rows_table"] == before["rows_table"]
+        for key, value in before["meta"].items():
+            assert after["meta"][key] == value
+        assert network.session.calls == []
+
+    asyncio.run(scenario())
+
+
+def test_bounded_fetch_does_not_invent_lessons_or_holidays(bounded_provider, network):
+    async def scenario():
+        s = bounded_provider
+        s.empty = True
+        result = await s.provider.fetch(date(2026, 11, 2), s.now)
+        assert len(s.calls) == 7
+        assert result["rows_table"] == []
+        assert result["meta"]["no_plan"] is True
+        for summary in result["daily"].values():
+            assert summary["school_day"] == "unknown"
+            assert summary["routine_ready"] is False
+        assert network.session.calls == []
+    asyncio.run(scenario())
+
+
+def test_bounded_fetch_refreshes_dates_after_week_navigation(bounded_provider):
+    async def scenario():
+        s = bounded_provider
+        await s.provider.fetch(date(2026, 11, 2), s.now)
+        s.calls.clear()
+        result = await s.provider.fetch(date(2026, 10, 26), s.now)
+        assert len(s.calls) == 5
+        assert all(item["date"] < "2026-11-02" for item in result["lessons"])
+        assert result["meta"]["week_offset"] == 0
+    asyncio.run(scenario())
+
+
+def test_missing_daily_fetch_failure_is_not_silently_ignored(bounded_provider, network):
+    async def scenario():
+        s = bounded_provider
+        s.fail_day = s.now.date()
+        with pytest.raises(network.api.Stundenplan24RequestBlocked):
+            await s.provider.fetch(date(2026, 11, 2), s.now)
+        assert len(s.calls) == 6
     asyncio.run(scenario())

@@ -406,6 +406,69 @@ def test_provider_calls_only_read_service_and_keeps_today_when_browsing():
     assert args[2]["start_date_time"].startswith(str(DAY))
 
 
+def test_parallel_change_does_not_leak_to_first_calendar_subject():
+    p = provider_fixture()
+    p.hass.states["sensor.today"].attributes["raw"]["lessons"] = [
+        raw(subject="Ku"), raw(subject="Ev"), raw(subject="Psem_D", kind="changedLesson")]
+    p.hass.services.response["calendar.child"]["events"] = [event(summary="Ku – R1")]
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": "1", "new_subject": "Psem_D",
+                               "original_subject": "Psem_D", "note": "EVA"}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    lesson = data["daily"]["today"]["lessons"][0]
+    assert lesson["subject"] == "Ku"
+    assert lesson["notes"] == [] and lesson["original"] is None
+    assert "unmatched_change_details" in data["meta"]["issues"]
+    assert not data["daily"]["today"]["routine_ready"]
+
+
+@pytest.mark.parametrize("details,expected", [
+    ({"new_subject": "D"}, False),
+    ({"new_subject": "D", "new_teacher": "T2", "new_room": "R2"}, True),
+    ({"new_subject": "D", "new_teacher": "T3"}, False),
+    ({}, False),
+])
+def test_parallel_change_details_require_one_identifiable_target(details, expected):
+    p = provider_fixture()
+    second = raw()
+    second.update(teacher="T2", room="R2")
+    p.hass.states["sensor.today"].attributes["raw"]["lessons"] = [raw(), second]
+    p.hass.services.response["calendar.child"]["events"] = [event(),
+        event(summary="D – R2", desc="Lehrer: T2\nRaum: R2")]
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": "1.", "note": "Own note", **details}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    lessons = data["daily"]["today"]["lessons"]
+    assert lessons[0]["notes"] == []
+    assert lessons[1]["notes"] == (["Own note"] if expected else [])
+
+
+def test_subject_change_matches_new_subject_not_original():
+    p = provider_fixture()
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": "1", "new_subject": "D",
+                               "original_subject": "M", "note": "Subject changed"}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    assert data["daily"]["today"]["lessons"][0]["original"] == {"subject": "M"}
+
+
+def test_same_subject_in_hidden_parallel_course_is_not_unique():
+    p = provider_fixture()
+    second = raw()
+    second.update(teacher="T2", room="R2")
+    p.hass.states["sensor.today"].attributes["raw"]["lessons"].append(second)
+    p.config["changes_entity"] = "sensor.changes"
+    p.hass.states["sensor.changes"] = SimpleNamespace(state="1", attributes={
+        "changes": {"today": [{"date": str(DAY), "hour": "1", "new_subject": "D",
+                               "note": "Ambiguous course"}]}})
+    data = asyncio.run(p.fetch(DAY, NOW))
+    assert data["daily"]["today"]["lessons"][0]["notes"] == []
+    assert "unmatched_change_details" in data["meta"]["issues"]
+
+
 def test_provider_unavailable_is_failure_not_empty_day():
     p = provider_fixture(); p.hass.states["calendar.child"].state = "unavailable"
     with pytest.raises(ValueError): asyncio.run(p.fetch(DAY, NOW))

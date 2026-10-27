@@ -116,9 +116,10 @@ class WeekOffsetNumber(NumberEntity, RestoreEntity):
 
         # Push into coordinator (if already created)
         coord = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
-        if coord is not None:
-            coord.week_offset = int(self._native_value or 0)
-            # sofort refresh, damit UI nach HA-Neustart nicht "zurückspringt"
+        restored_offset = int(self._native_value or 0)
+        if coord is not None and coord.week_offset != restored_offset:
+            coord.week_offset = restored_offset
+            # Only a different restored week needs another fetch after entry setup.
             await coord.async_request_refresh()
 
         self.async_write_ha_state()

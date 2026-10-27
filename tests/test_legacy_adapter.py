@@ -28,6 +28,8 @@ def test_preserves_existing_card_contract_and_offsets(providers):
         async def _async_update_data(self):
             self.bundles = {'2026-09-17': ([(1,'D','T1','R1','07:45','08:30')],[], '',True)}
             return old
+        async def _fetch_day_bundle(self, week_monday, day_dt, use_current_week_mode):
+            self.bundles[day_dt.date().isoformat()] = ([], [], '', False)
     p = providers.Stundenplan24Provider.__new__(providers.Stundenplan24Provider)
     p.legacy = Legacy()
     result = asyncio.run(p.fetch(date(2026,9,21),now))

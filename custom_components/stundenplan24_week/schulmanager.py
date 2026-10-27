@@ -266,14 +266,35 @@ class SchulmanagerProvider:
                     period = normalize_period(change.get("hour"))
                     if not period:
                         continue
-                    for lesson in lessons:
-                        if lesson.date == change.get("date") and lesson.period == period:
-                            original = {key: change.get("original_" + key) for key in ("subject", "teacher", "room") if change.get("original_" + key)}
-                            if original:
-                                lesson.original = original
-                            for key in ("reason", "note"):
-                                if change.get(key) and str(change[key]) not in lesson.notes:
-                                    lesson.notes.append(str(change[key]))
+                    candidates = [lesson for lesson in lessons
+                                  if lesson.date == change.get("date") and lesson.period == period
+                                  and lesson.kind != "break"]
+                    subject = change.get("new_subject") or change.get("original_subject")
+                    if subject:
+                        candidates = [lesson for lesson in candidates if lesson.subject == subject]
+                    for key, attr in (("new_teacher", "teachers"), ("new_room", "rooms")):
+                        if change.get(key):
+                            candidates = [lesson for lesson in candidates
+                                          if change[key] in getattr(lesson, attr)]
+                    parallel_raw = [item for item in raw_days.get(change.get("date"), [])
+                                    if normalize_period(item.get("hour")) == period]
+                    matching_raw = [item for item in parallel_raw
+                                    if (not subject or item.get("subject") == subject)
+                                    and all(not change.get("new_" + key)
+                                            or item.get(key) == change["new_" + key]
+                                            for key in ("teacher", "room"))]
+                    # Calendar output may contain only one of several parallel lessons.
+                    # Never attach another course's change merely by date and period.
+                    if len(candidates) != 1 or (len(parallel_raw) > 1 and len(matching_raw) != 1):
+                        issues.append("unmatched_change_details")
+                        continue
+                    lesson = candidates[0]
+                    original = {key: change.get("original_" + key) for key in ("subject", "teacher", "room") if change.get("original_" + key)}
+                    if original:
+                        lesson.original = original
+                    for key in ("reason", "note"):
+                        if change.get(key) and str(change[key]) not in lesson.notes:
+                            lesson.notes.append(str(change[key]))
         result = payload(lessons, monday, now.date(), provider=self.name,
                        target=self.config.get("target", "Stundenplan"), fetched_at=now.isoformat(),
                        verified_days=verified, issues=issues,

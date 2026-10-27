@@ -1,7 +1,7 @@
 """Provider boundary, including a compatibility adapter for Stundenplan24."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Protocol
 import re
 
@@ -54,6 +54,9 @@ def normalize_stundenplan24(bundles: dict, zone) -> list[Lesson]:
 class _CapturingLegacyCoordinator(SPlanCoordinator):
     """Retain the original formatter while capturing pre-display lesson tuples."""
 
+    # Suite sensors expose the selected week, not the legacy adjacent-week maps.
+    _prefetch_week_offsets = ()
+
     async def _fetch_day_bundle(self, week_monday, day_dt, use_current_week_mode):
         result = await super()._fetch_day_bundle(week_monday, day_dt, use_current_week_mode)
         self.bundles[day_dt.date().isoformat()] = result
@@ -71,6 +74,17 @@ class Stundenplan24Provider:
         self.legacy.week_offset = (monday - current_monday).days // 7
         self.legacy.bundles = {}
         legacy = await self.legacy._async_update_data()
+        # Daily sensors follow the real date even when another week is selected.
+        # Fetch only missing weekdays, including Monday when today is Sunday.
+        for offset in (0, 1):
+            day = now.date() + timedelta(days=offset)
+            if day.weekday() >= 5 or day.isoformat() in self.legacy.bundles:
+                continue
+            day_dt = datetime.combine(day, datetime.min.time())
+            await self.legacy._fetch_day_bundle(
+                day_dt - timedelta(days=day.weekday()), day_dt,
+                use_current_week_mode=False,
+            )
         lessons = normalize_stundenplan24(self.legacy.bundles, now.tzinfo)
         result = payload(lessons, monday, now.date(), provider=self.name,
                          target=self.legacy.target, fetched_at=now.isoformat(),

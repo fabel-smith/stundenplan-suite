@@ -19,9 +19,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: SPlanCoordinator = hass.data[DOMAIN][entry.entry_id]
+    # Entry setup has already completed the coordinator's first refresh.
     async_add_entities([Stundenplan24WeekSensor(coordinator, entry),
                         DailySensor(coordinator, entry, "today"),
-                        DailySensor(coordinator, entry, "tomorrow")], update_before_add=True)
+                        DailySensor(coordinator, entry, "tomorrow")])
 
 
 class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity):

@@ -313,6 +313,8 @@ def _merge_cells(base: str, overlay: str) -> str:
 # Coordinator
 # -----------------------------
 class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    _prefetch_week_offsets = (-2, -1, 1, 2)
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
@@ -1063,7 +1065,7 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             exact_cells_by_date_time = await self._enrich_exact_maps_with_wplan(day_dates, exact_cells_by_date_time)
             exact_cells_by_date_time = await self._enrich_exact_maps_with_wplan_html(monday, exact_cells_by_date_time)
 
-            for week_delta in (-2, -1, 1, 2):
+            for week_delta in self._prefetch_week_offsets:
                 probe_monday = monday + timedelta(weeks=week_delta)
                 probe_dates = weekdays_for_monday(probe_monday)
                 probe_results = await asyncio.gather(

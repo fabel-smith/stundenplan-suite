@@ -227,8 +227,13 @@ Die Suite erzeugt diese Angaben für unterstützte Statusinformationen automatis
 
 ### Schonender Abruf bei Stundenplan24
 
-Ein Update kann mehrere Anfragen für die angezeigte und benachbarte Wochen
-auslösen. Kurze Intervalle und mehrere Kinder können zu Zugriffsbeschränkungen
+Die Suite lädt die angezeigte Woche und bei Bedarf zusätzlich die fehlenden
+Unterrichtstage für die Sensoren „Heute“ und „Morgen“. Vier komplette
+Nachbarwochen werden nicht mehr pauschal vorgeladen. Auch beim HA-Start werden
+bereits geladene Daten für die Sensoren wiederverwendet; ein abweichender
+gespeicherter Wochenversatz lädt weiterhin die passende Woche nach.
+
+Ein Update kann trotzdem mehrere Anfragen auslösen. Kurze Intervalle und mehrere Kinder können zu Zugriffsbeschränkungen
 oder IP-Sperren führen. Ein garantiert sperrsicheres Intervall gibt es nicht.
 Der bisherige Standard von 360 Minuten und deine gespeicherten Einstellungen
 bleiben unverändert. Beachte die Vorgaben deiner Schule und des Anbieters.
@@ -256,6 +261,17 @@ leerer Stundenplan. Die Anwendung kann dann vorübergehend nicht verfügbar sein
 Für Schulmanager liest die Suite vorhandene HA-Entitäten und verwendet den
 Kalenderdienst der vorgelagerten Integration. Deren Abrufverhalten wird hier
 nicht gesteuert.
+
+### Parallelstunden bei Schulmanager
+
+Änderungshinweise werden nur einer eindeutig passenden Unterrichtsstunde
+zugeordnet. Ist die Zuordnung unklar, übernimmt die Suite die zusätzlichen
+Hinweise nicht und meldet `unmatched_change_details` in den Metadaten. So landet
+beispielsweise der Hinweis eines Parallelkurses nicht beim falschen Fach.
+
+Das löst noch nicht die Auswahl des richtigen Kurses: Wenn die Quelle nur einen
+von mehreren parallelen Einträgen weitergibt, kann die Suite daraus nicht
+zuverlässig den Kurs deines Kindes bestimmen.
 
 ### Unabhängiges Projekt und Datenschutz
 
