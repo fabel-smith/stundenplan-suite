@@ -120,7 +120,8 @@ class WeekOffsetNumber(NumberEntity, RestoreEntity):
         if coord is not None and coord.week_offset != restored_offset:
             coord.week_offset = restored_offset
             # Only a different restored week needs another fetch after entry setup.
-            await coord.async_request_refresh()
+            if not getattr(coord, "initial_refresh_pending", False):
+                await coord.async_request_refresh()
 
         self.async_write_ha_state()
 
@@ -137,6 +138,7 @@ class WeekOffsetNumber(NumberEntity, RestoreEntity):
         coord = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
         if coord is not None:
             coord.week_offset = v_int
-            await coord.async_request_refresh()
+            if not getattr(coord, "initial_refresh_pending", False):
+                await coord.async_request_refresh()
 
         self.async_write_ha_state()

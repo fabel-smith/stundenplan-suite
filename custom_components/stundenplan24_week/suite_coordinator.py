@@ -8,6 +8,7 @@ from homeassistant.util import dt as dt_util
 
 from .providers import Stundenplan24Provider
 from .schulmanager import SchulmanagerProvider
+from .schulmanager_schedule import EVENT, SchulmanagerScheduleProvider
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,10 +23,18 @@ class SuiteCoordinator(DataUpdateCoordinator):
         default_interval = 5 if self.provider_name == "schulmanager" else 360
         self.provider = (SchulmanagerProvider(hass, config) if self.provider_name == "schulmanager"
                          else Stundenplan24Provider(hass, entry))
+        if self.provider_name == "schulmanager" and config.get("use_schedule_service"):
+            self.provider = SchulmanagerScheduleProvider(hass, config)
         super().__init__(hass, _LOGGER, name=f"stundenplan_suite_{self.target}",
                          update_interval=timedelta(minutes=int(config.get("update_minutes", default_interval))))
 
     def async_watch_sources(self):
+        if isinstance(self.provider, SchulmanagerScheduleProvider):
+            async def schedule_changed(event):
+                if self.provider.matches_event(event):
+                    await self.async_request_refresh()
+            self.entry.async_on_unload(self.hass.bus.async_listen(EVENT, schedule_changed))
+            return
         if self.provider_name == "schulmanager":
             async def changed(event):
                 await self.async_request_refresh()

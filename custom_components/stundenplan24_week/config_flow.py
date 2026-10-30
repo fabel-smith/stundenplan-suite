@@ -8,6 +8,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import DOMAIN
+from .schulmanager_schedule import course_options, read_schedules
 
 CONF_SCHOOL_ID = "school_id"
 CONF_TARGET = "target"
@@ -25,11 +26,85 @@ DEFAULT_WPLAN_ENABLED = False
 DEFAULT_WPLAN_DAYS = 3
 
 
-class Stundenplan24WeekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ScheduleFlowMixin:
+    """Explicit child/account selection, followed by optional course exclusions."""
+
+    async def async_step_schedule_child(self, user_input=None):
+        errors = {}
+        if not hasattr(self, "_schedule_students"):
+            try:
+                self._schedule_students = await read_schedules(self.hass)
+            except Exception:
+                return self.async_abort(reason="schedule_unavailable")
+        choices = {f"{s['config_entry_id']}:{s['student_id']}": s for s in self._schedule_students}
+        if not choices:
+            return self.async_abort(reason="schedule_unavailable")
+        if user_input is not None:
+            selected = choices.get(user_input.get("student"))
+            if selected is None:
+                errors["base"] = "invalid_student"
+            else:
+                self._schedule_student = selected
+                same = (self._schedule_pending.get("schedule_entry_id") == selected["config_entry_id"]
+                        and self._schedule_pending.get("schedule_student_id") == selected["student_id"])
+                if not same:
+                    self._schedule_pending["excluded_course_ids"] = []
+                self._schedule_pending.update(
+                    use_schedule_service=True, schedule_entry_id=selected["config_entry_id"],
+                    schedule_student_id=selected["student_id"])
+                return await self.async_step_schedule_courses()
+        current = f"{self._schedule_pending.get('schedule_entry_id')}:{self._schedule_pending.get('schedule_student_id')}"
+        marker = vol.Required("student", **({"default": current} if current in choices else {}))
+        schema = vol.Schema({marker: selector.SelectSelector(selector.SelectSelectorConfig(
+            options=[{"value": key, "label": f"{s.get('name') or s['student_id']} / {s.get('school') or 'Schulmanager'} (Konto {s['config_entry_id'][-6:]})"}
+                     for key, s in choices.items()], mode=selector.SelectSelectorMode.DROPDOWN))})
+        return self.async_show_form(step_id="schedule_child", data_schema=schema, errors=errors)
+
+    async def async_step_schedule_courses(self, user_input=None):
+        saved = self._schedule_pending.get("excluded_course_ids", [])
+        choices = course_options(self._schedule_student, saved)
+        errors = {}
+        if user_input is not None:
+            values = user_input.get("excluded_course_ids", [])
+            if not set(values) <= {c["value"] for c in choices}:
+                errors["base"] = "invalid_courses"
+            else:
+                self._schedule_pending["excluded_course_ids"] = values
+                return await self._finish_schedule()
+        schema = vol.Schema({vol.Optional("excluded_course_ids", default=saved):
+            selector.SelectSelector(selector.SelectSelectorConfig(
+                options=choices, multiple=True, mode=selector.SelectSelectorMode.LIST))})
+        return self.async_show_form(step_id="schedule_courses", data_schema=schema, errors=errors)
+
+
+class Stundenplan24WeekConfigFlow(ScheduleFlowMixin, config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        return self.async_show_menu(step_id="user", menu_options=["stundenplan24", "schulmanager"])
+        return self.async_show_menu(step_id="user", menu_options=["stundenplan24", "schulmanager_schedule", "schulmanager"])
+
+    async def async_step_schulmanager_schedule(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            target = user_input.get("target", "").strip()
+            if not target:
+                errors["base"] = "missing_required"
+            elif any(e.data.get("target", "").casefold() == target.casefold()
+                     for e in self.hass.config_entries.async_entries(DOMAIN)):
+                errors["base"] = "target_in_use"
+            else:
+                self._schedule_pending = {**user_input, "target": target, "provider": "schulmanager"}
+                return await self.async_step_schedule_child()
+        return self.async_show_form(step_id="schulmanager_schedule", errors=errors,
+            data_schema=vol.Schema({vol.Required("target"): str,
+                vol.Optional(CONF_SHOW_ROOM, default=True): bool,
+                vol.Optional(CONF_SHOW_TEACHER, default=False): bool}))
+
+    async def _finish_schedule(self):
+        data = self._schedule_pending
+        await self.async_set_unique_id(f"schulmanager_{data['schedule_entry_id']}_{data['schedule_student_id']}")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title=data["target"], data=data)
 
     async def async_step_schulmanager(self, user_input=None):
         errors = {}
@@ -91,28 +166,34 @@ class Stundenplan24WeekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
+class OptionsFlowHandler(ScheduleFlowMixin, config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         # NICHT self.config_entry setzen (read-only / kein setter)
         self._entry = config_entry
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
+            if self._entry.data.get("provider") == "schulmanager" and user_input.get("use_schedule_service"):
+                self._schedule_pending = {**self._entry.options, **user_input}
+                for key in ("schedule_entry_id", "schedule_student_id", "excluded_course_ids"):
+                    if key not in self._schedule_pending and key in self._entry.data:
+                        self._schedule_pending[key] = self._entry.data[key]
+                return await self.async_step_schedule_child()
+            if self._entry.data.get("provider") == "schulmanager":
+                self._legacy_pending = {**self._entry.options, **user_input, "use_schedule_service": False}
+                return await self.async_step_legacy_sources()
             return self.async_create_entry(title="", data=user_input)
 
         options = self._entry.options or {}
 
         if self._entry.data.get("provider") == "schulmanager":
             fields = {
+                vol.Optional("use_schedule_service", default=options.get("use_schedule_service", self._entry.data.get("use_schedule_service", False))): bool,
                 vol.Optional(CONF_UPDATE_MINUTES, default=options.get(CONF_UPDATE_MINUTES, 5)): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
                 vol.Optional(CONF_SHOW_ROOM, default=options.get(CONF_SHOW_ROOM, self._entry.data.get(CONF_SHOW_ROOM, True))): bool,
                 vol.Optional(CONF_SHOW_TEACHER, default=options.get(CONF_SHOW_TEACHER, self._entry.data.get(CONF_SHOW_TEACHER, False))): bool,
             }
-            for key in ("calendar_entity", "today_entity", "tomorrow_entity", "week_entity", "changes_entity"):
-                value = options.get(key, self._entry.data.get(key))
-                marker = vol.Required(key, default=value) if key != "changes_entity" else vol.Optional(key, **({"default": value} if value else {}))
-                fields[marker] = selector.EntitySelector(selector.EntitySelectorConfig(domain="calendar" if key == "calendar_entity" else "sensor", integration="schulmanager"))
-            return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))
+            return self.async_show_form(step_id="schulmanager_options", data_schema=vol.Schema(fields))
 
         schema = vol.Schema(
             {
@@ -140,3 +221,31 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def _finish_schedule(self):
+        return self.async_create_entry(title="", data=self._schedule_pending)
+
+    async def async_step_schulmanager_options(self, user_input=None):
+        return await self.async_step_init(user_input)
+
+    async def async_step_legacy_sources(self, user_input=None):
+        config = {**self._entry.data, **self._legacy_pending}
+        errors = {}
+        required = ("calendar_entity", "today_entity", "tomorrow_entity", "week_entity")
+        if user_input is not None:
+            if any(not user_input.get(key) for key in required):
+                errors["base"] = "legacy_sources_required"
+                config.update(user_input)
+            else:
+                # An omitted optional selector explicitly clears a previous selection.
+                self._legacy_pending.update(user_input)
+                self._legacy_pending["changes_entity"] = user_input.get("changes_entity", "")
+                return self.async_create_entry(title="", data=self._legacy_pending)
+        fields = {}
+        for key in (*required, "changes_entity"):
+            value = config.get(key)
+            marker_type = vol.Required if key in required else vol.Optional
+            marker = marker_type(key, **({"default": value} if value else {}))
+            fields[marker] = selector.EntitySelector(selector.EntitySelectorConfig(
+                domain="calendar" if key == "calendar_entity" else "sensor", integration="schulmanager"))
+        return self.async_show_form(step_id="legacy_sources", data_schema=vol.Schema(fields), errors=errors)

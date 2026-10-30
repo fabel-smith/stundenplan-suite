@@ -17,8 +17,24 @@
         "title": "Stundenplan Suite",
         "menu_options": {
           "stundenplan24": "Stundenplan24",
-          "schulmanager": "Schulmanager über Home Assistant"
+          "schulmanager": "Schulmanager über Kalender/Sensoren (bisherige Anbindung)",
+          "schulmanager_schedule": "Schulmanager: Kind und Kurse (ab v0.13)"
         }
+      },
+      "schedule_child": {
+        "title": "Kind auswählen",
+        "description": "Wähle das Kind aus der Schulmanager-Integration. Bei mehreren Konten gehört jedes Kind zu seinem jeweiligen Konto.",
+        "data": {"student": "Kind und Schulmanager-Konto"}
+      },
+      "schedule_courses": {
+        "title": "Nicht benötigte Kurse ausblenden",
+        "description": "Standardmäßig bleiben alle Kurse sichtbar. Markiere nur Kurse, an denen dein Kind nicht teilnimmt. Die Auswahl gilt anhand der Kurskennung, nicht anhand des Raums. Sonderstunden ohne Kurskennung bleiben vorsichtshalber erhalten. Ohne geladene Stunden können noch keine neuen Kurse angeboten werden.",
+        "data": {"excluded_course_ids": "Diese Kurse ausblenden"}
+      },
+      "schulmanager_schedule": {
+        "title": "Schulmanager: strukturierter Stundenplan",
+        "description": "Verwendet die neue Schulmanager-Aktion get_schedule. Es werden keine zusätzlichen Anfragen an die Schule gesendet.",
+        "data": {"target": "Eindeutiger Anzeigename", "show_room": "Raum anzeigen", "show_teacher": "Lehrer anzeigen"}
       },
       "schulmanager": {
         "title": "Schulmanager-Quelle",
@@ -36,21 +52,65 @@
       }
     },
     "error": {
+      "invalid_student": "Bitte ein verfügbares Kind auswählen.",
+      "invalid_courses": "Bitte nur angebotene Kurse auswählen.",
       "missing_required": "Bitte einen Namen und alle Pflichtfelder angeben.",
       "target_in_use": "Dieser Anzeigename wird bereits verwendet. Bitte einen anderen Namen wählen."
     },
     "abort": {
-      "already_configured": "Diese Quelle ist bereits eingerichtet."
+      "already_configured": "Diese Quelle ist bereits eingerichtet.",
+      "schedule_unavailable": "Die neue Schulmanager-Schnittstelle ist noch nicht verfügbar. Schulmanager ab v0.13 installieren und laden, dann erneut versuchen."
     }
   },
   "options": {
+    "abort": {
+      "schedule_unavailable": "Die neue Schulmanager-Schnittstelle ist noch nicht verfügbar. Schulmanager ab v0.13 installieren und laden, dann erneut versuchen.",
+      "legacy_sources_required": "Für die bisherige Anbindung bitte Kalender sowie Heute-, Morgen- und Wochensensor angeben."
+    },
+    "error": {
+      "invalid_student": "Bitte ein verfügbares Kind auswählen.",
+      "invalid_courses": "Bitte nur angebotene Kurse auswählen.",
+      "legacy_sources_required": "Bitte Kalender sowie Heute-, Morgen- und Wochensensor angeben."
+    },
     "step": {
+      "schedule_child": {
+        "title": "Kind auswählen",
+        "description": "Wähle das Kind aus der Schulmanager-Integration. Bei mehreren Konten gehört jedes Kind zu seinem jeweiligen Konto.",
+        "data": {"student": "Kind und Schulmanager-Konto"}
+      },
+      "schedule_courses": {
+        "title": "Nicht benötigte Kurse ausblenden",
+        "description": "Standardmäßig bleiben alle Kurse sichtbar. Markiere nur Kurse, an denen dein Kind nicht teilnimmt. Die Auswahl gilt anhand der Kurskennung, nicht anhand des Raums. Sonderstunden ohne Kurskennung bleiben vorsichtshalber erhalten. Ohne geladene Stunden können noch keine neuen Kurse angeboten werden.",
+        "data": {"excluded_course_ids": "Diese Kurse ausblenden"}
+      },
+      "schulmanager_options": {
+        "title": "Schulmanager-Optionen",
+        "description": "Anzeige und Datenanbindung einstellen. Mit der neuen Schnittstelle wählst du anschließend Kind und Kurse. Nur bei der bisherigen Anbindung werden Kalender und Sensoren benötigt. Die Suite verwendet vorhandene Schulmanager-Daten; sie fragt nicht zusätzlich bei der Schule an.",
+        "data": {
+          "use_schedule_service": "Neue Schulmanager-Schnittstelle verwenden",
+          "update_minutes": "Prüfintervall vorhandener Daten (Minuten)",
+          "show_room": "Raum anzeigen",
+          "show_teacher": "Lehrer anzeigen"
+        }
+      },
+      "legacy_sources": {
+        "title": "Bisherige Schulmanager-Anbindung",
+        "description": "Wähle die Kalender und Sensoren desselben Kindes. Diese Angaben werden nur für die bisherige Anbindung benötigt.",
+        "data": {
+          "calendar_entity": "Stundenplankalender",
+          "today_entity": "Stundenplan heute",
+          "tomorrow_entity": "Stundenplan morgen",
+          "week_entity": "Wochenplan JSON",
+          "changes_entity": "Stundenplan Änderungen (optional)"
+        }
+      },
       "init": {
         "title": "Optionen",
         "description": "Anzeige, Datenquellen und Aktualisierungsintervall einstellen. Bei Stundenplan24 kann ein Update mehrere Serveranfragen auslösen. Kurze Intervalle und mehrere Kinder können zu Zugriffsbeschränkungen oder IP-Sperren führen. Wähle das Intervall nur so kurz wie nötig und beachte die Vorgaben deiner Schule bzw. des Anbieters. Es gibt kein garantiert sperrsicheres Intervall. Bei Schulmanager nutzt die Suite vorhandene Home-Assistant-Entitäten.",
         "data": {
           "show_room": "Raum anzeigen",
           "show_teacher": "Lehrer anzeigen",
+          "use_schedule_service": "Neue Schulmanager-Schnittstelle verwenden (Kind und Kurse im nächsten Schritt)",
           "update_minutes": "Update-Intervall (Minuten)",
           "wplan_enabled": "Wochenplan-Zusatzdaten laden",
           "wplan_days": "Anzahl zusätzlicher WPlan-Tage",

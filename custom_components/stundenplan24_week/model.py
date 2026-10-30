@@ -16,6 +16,7 @@ CARD_META_KEYS = (
     "week_start", "days", "class", "school_id", "no_plan", "updated_days",
     "updated_raw", "updated_error", "source", "provider", "fetched_at",
     "source_updated_at", "coverage", "issues", "week_offset",
+    "source_status", "source_interface", "loaded_days", "excluded_courses",
 )
 CELL_STYLES = {
     "cancelled": {
@@ -48,9 +49,14 @@ class Lesson:
     source_type: str = ""
     confidence: str = "reported"  # reported, corroborated, inferred, unknown
     source_id: str = ""
+    course_id: str | None = None
+    group: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        for key in ("course_id", "group"):
+            if data[key] is None:
+                data.pop(key)
         # Stable under input reordering; no personal source IDs are needed.
         identity = [self.source_id, self.date, self.period, self.start, self.end,
                     self.subject, self.teachers, self.rooms, self.kind, self.status]
@@ -122,6 +128,20 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
             parts.extend(item.teachers)
         parts.extend(item.notes)
         cell = "\n".join(x for x in parts if x)
+        original = item.original if isinstance(item.original, dict) else {}
+        old_subject = original.get("subject")
+        if (item.kind == "lesson" and item.status == "changed" and "subject" in item.changes
+                and isinstance(old_subject, str) and old_subject.strip() and item.subject.strip()
+                and old_subject.strip().casefold() != item.subject.strip().casefold()):
+            old_parts = [old_subject.strip()]
+            for field_name, visible in (("rooms", show_room), ("teachers", show_teacher)):
+                values = original.get(field_name)
+                if visible and isinstance(values, list):
+                    old_parts.extend(value for value in values if isinstance(value, str) and value)
+            # Display-only comparison: never add another Lesson or alter attendance.
+            row.setdefault("subject_changes", {}).setdefault(DAYS[col], []).append({
+                "current": cell, "original": "\n".join(old_parts),
+            })
         row["cells"][col] = "\n\n".join(x for x in (row["cells"][col], cell) if x)
         priority = STYLE_PRIORITY.get(item.status, 0)
         if priority > row["style_priorities"][col]:
@@ -142,6 +162,7 @@ def card_rows(lessons: list[Lesson], monday: date, *, show_room: bool = True,
     table = [dict(r) if r.get("break") else
              {"time": r["time"], "start": r["start"], "end": r["end"],
               **dict(zip(DAYS, r["cells"])),
+              **({"subject_changes": r["subject_changes"]} if "subject_changes" in r else {}),
               **({"cell_styles": r["cell_styles"]} if "cell_styles" in r else {})}
              for r in rows]
     return rows, table

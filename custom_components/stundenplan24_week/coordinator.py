@@ -418,6 +418,16 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return last, stand, vplan_day_available
 
     async def _fetch_wplan_info(self, day_dt: datetime) -> Dict[Tuple[int, int], str]:
+        cache = getattr(self, "_refresh_wplan_info", None)
+        key = ymd(day_dt)
+        if cache is not None and key in cache:
+            return cache[key]
+        result = await self._load_wplan_info(day_dt)
+        if cache is not None:
+            cache[key] = result
+        return result
+
+    async def _load_wplan_info(self, day_dt: datetime) -> Dict[Tuple[int, int], str]:
         """Optional: mobil WPlanKlYYYYMMDD.xml als Zusatzinfos."""
         try:
             xml_text = await self.api.fetch_wplan_day_xml(self.school_id, day_dt)
@@ -1001,6 +1011,9 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
 # -------- Update --------
     async def _async_update_data(self) -> Dict[str, Any]:
+        # Exact-map and row enrichment share even empty optional results, but
+        # only within this refresh. A later refresh must try again.
+        self._refresh_wplan_info = {}
         try:
             self.api.raise_if_blocked()
             today = datetime.now()
@@ -1315,3 +1328,5 @@ class SPlanCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         except Exception as err:
             raise UpdateFailed(str(err)) from err
+        finally:
+            self._refresh_wplan_info = None

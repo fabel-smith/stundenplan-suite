@@ -19,7 +19,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: SPlanCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Entry setup has already completed the coordinator's first refresh.
+    # The remote provider may still be loading; never fetch from entity setup.
     async_add_entities([Stundenplan24WeekSensor(coordinator, entry),
                         DailySensor(coordinator, entry, "today"),
                         DailySensor(coordinator, entry, "tomorrow")])
@@ -46,8 +46,19 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
     @property
     def native_value(self) -> str:
         """Kurzer Status als Sensorwert."""
+        if self.coordinator.data is None:
+            return "Daten werden geladen"
         data = self.coordinator.data or {}
         meta = data.get("meta") or {}
+        if meta.get("source_interface") == "get_schedule":
+            if meta.get("source_status") == "unavailable":
+                return "Quelle nicht verfügbar"
+            if meta.get("coverage") == "stale":
+                return "Daten veraltet"
+            if not meta.get("loaded_days"):
+                return "Zeitraum nicht geladen"
+            if meta.get("no_plan") and meta.get("coverage") == "reported":
+                return "Kein Unterricht"
         no_plan = bool(meta.get("no_plan", False))
 
         if no_plan:
@@ -60,6 +71,9 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         attrs = compact_week_attributes(data)
+        if self.coordinator.data is None:
+            attrs["loading"] = True
+            attrs["no_plan"] = False
 
         from homeassistant.helpers import entity_registry as er
         offset_uid = (f"{DOMAIN}_{self.entry.entry_id}_week_offset" if self.entry.data.get("provider") == "schulmanager"

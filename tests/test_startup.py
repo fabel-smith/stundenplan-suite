@@ -137,3 +137,16 @@ def test_explicit_week_change_still_refreshes(platforms):
     asyncio.run(number.async_set_native_value(1))
     assert number.native_value == coordinator.week_offset == 1
     coordinator.async_request_refresh.assert_awaited_once()
+
+
+def test_deferred_restore_does_not_block_platform_setup(platforms):
+    hass, entry, coordinator = context()
+    coordinator.initial_refresh_pending = True
+    coordinator.data = None
+    number = platforms.number.WeekOffsetNumber(hass, entry)
+    number.last_state = types.SimpleNamespace(state="1")
+    asyncio.run(number.async_added_to_hass())
+    assert coordinator.week_offset == 1
+    coordinator.async_request_refresh.assert_not_awaited()
+    sensor = platforms.sensor.Stundenplan24WeekSensor(coordinator, entry)
+    assert sensor.native_value == "Daten werden geladen"
