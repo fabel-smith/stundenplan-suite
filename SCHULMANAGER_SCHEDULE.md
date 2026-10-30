@@ -1,6 +1,6 @@
 # Schulmanager mit Kursauswahl
 
-In der Vorabversion **v0.4.0b1** ist die direkte Anbindung optional verfügbar. Voraussetzung
+In der Vorabversion **v0.4.0b2** ist die direkte Anbindung optional verfügbar. Voraussetzung
 ist die Aktion `schulmanager.get_schedule` der Integration von MrIcemanLE.
 Getestet wurde **Schulmanager Online v0.13.0b4**, noch eine Vorabversion.
 Die bisherige Kalender-/Sensor-Anbindung funktioniert weiterhin und wird nicht
@@ -19,6 +19,36 @@ zwei gleichnamige Parallelkurse getrennt behandelt werden. Welche Gruppe das Kin
 besucht, muss weiterhin bekannt sein; die Suite rät diese Zuordnung nicht.
 Neue Kurse bleiben sichtbar. Gespeicherte Ausschlüsse bleiben auch über Ferien erhalten.
 Sonderstunden ohne Kurskennung werden vorsichtshalber nicht ausgeblendet.
+
+## Wochentagsfilter (ab v0.4.0b2)
+
+Zusaetzlich zum bisherigen Ausschluss ganzer Kurse gibt es
+zwei Auswahllisten: **An allen Tagen ausblenden** und **Nur an bestimmten
+Wochentagen ausblenden**. Einen Kurs nur in einer der beiden Listen auswaehlen.
+Fuer die zweite Liste folgt je Kurs eine Auswahl der Wochentage.
+
+Beispiel Kunst: Den Kunstkurs nur in der Wochentagsliste auswaehlen, danach
+**Montag** markieren und speichern. Kunst verschwindet montags, bleibt aber
+dienstags erhalten. Bestehende Ausschluesse gelten weiterhin an allen Tagen.
+Zum Entfernen einer Tagesregel den Kurs aus der Wochentagsliste entfernen.
+Die Regeln bleiben auch ohne geladene Stunden gespeichert. Beim Wechsel des
+Kindes oder Kontos werden beide Arten von Kursfiltern zurueckgesetzt.
+
+Die Karte erhaelt die Tagesbeschraenkung im angezeigten Kursnamen, zum Beispiel
+**nur Montag**. Es ist kein zusaetzlicher Kartenfilter erforderlich.
+
+Kurzer Praxistest nach Installation der Vorabversion:
+
+1. Einen Kurs mit Unterricht an mindestens zwei Tagen nur montags ausblenden.
+2. Pruefen, dass andere Tage und andere Parallelkurse unveraendert bleiben.
+3. Einstellungen erneut oeffnen: Kurs und Montag muessen vorausgewaehlt sein.
+4. HA neu starten und Wochen wechseln: Die Regel muss erhalten bleiben.
+5. Regel entfernen: Der Kurs muss wieder an allen geladenen Tagen erscheinen.
+
+Technisch wird `excluded_course_weekdays` als Zuordnung von Kurskennung zu
+Wochentagen (`mon` bis `sun`) gespeichert. Entscheidend ist das Datum der Stunde,
+nicht der aktuelle Tag oder die gewaehlte Ansicht. Sonderstunden ohne Kurskennung
+bleiben weiterhin sichtbar. Diese Erweiterung ist ab v0.4.0b2 enthalten.
 
 Entity-IDs und Wochenauswahl bleiben beim Umstellen erhalten. Zum Zurückwechseln
 den Schalter ausschalten und die bisherigen Kalender-/Sensorquellen bestätigen.

@@ -1,6 +1,7 @@
 """Exercise the options wizard without a running HA installation."""
 import asyncio
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -87,10 +88,100 @@ def test_service_unavailable_does_not_save_partial_options(flow_module):
 
 
 def test_change_child_clears_only_child_specific_filter(flow_module):
-    f = setup_flow(flow_module, {"schedule_entry_id": "other", "schedule_student_id": "child", "excluded_course_ids": ["10"]})
+    f = setup_flow(flow_module, {"schedule_entry_id": "other", "schedule_student_id": "child",
+        "excluded_course_ids": ["10"], "excluded_course_weekdays": {"20": ["mon"]}})
     asyncio.run(f.async_step_init({"use_schedule_service": True}))
     asyncio.run(f.async_step_schedule_child({"student": "account:child"}))
     assert f._schedule_pending["excluded_course_ids"] == []
+    assert f._schedule_pending["excluded_course_weekdays"] == {}
+
+
+def weekday_flow(module):
+    f = setup_flow(module, {"schedule_entry_id": "account", "schedule_student_id": "child",
+        "excluded_course_ids": ["30"], "excluded_course_weekdays": {"10": ["mon"], "20": ["fri"]}})
+    asyncio.run(f.async_step_init({"use_schedule_service": True}))
+    asyncio.run(f.async_step_schedule_child({"student": "account:child"}))
+    return f
+
+
+def test_weekday_wizard_preserves_saved_courses_in_holidays_and_saves_each_rule(flow_module):
+    f = weekday_flow(flow_module)
+    courses = asyncio.run(f.async_step_schedule_courses())
+    values = courses["data_schema"]({})
+    assert values == {"excluded_course_ids": ["30"], "weekday_courses": ["10", "20"]}
+    first = asyncio.run(f.async_step_schedule_courses(values))
+    assert first["step_id"] == "schedule_weekdays"
+    assert "Kurs 10" in first["description_placeholders"]["course"]
+    assert first["data_schema"]({}) == {"weekdays": ["mon"]}
+    invalid = asyncio.run(f.async_step_schedule_weekdays({"weekdays": []}))
+    assert invalid["errors"]["base"] == "invalid_weekdays"
+    invalid = asyncio.run(f.async_step_schedule_weekdays({"weekdays": ["noday"]}))
+    assert invalid["errors"]["base"] == "invalid_weekdays"
+    second = asyncio.run(f.async_step_schedule_weekdays({"weekdays": ["wed", "mon"]}))
+    assert "Kurs 20" in second["description_placeholders"]["course"]
+    assert second["data_schema"]({}) == {"weekdays": ["fri"]}
+    # Nothing has changed in the actual entry before finishing the wizard.
+    assert f._entry.options["excluded_course_weekdays"]["10"] == ["mon"]
+    done = asyncio.run(f.async_step_schedule_weekdays({"weekdays": ["fri"]}))
+    assert done["type"] == "create_entry"
+    assert done["data"]["excluded_course_weekdays"] == {"10": ["mon", "wed"], "20": ["fri"]}
+    assert done["data"]["excluded_course_ids"] == ["30"]
+
+
+def test_weekday_wizard_rejects_overlap_and_unknown_courses(flow_module):
+    f = weekday_flow(flow_module)
+    overlap = asyncio.run(f.async_step_schedule_courses({
+        "excluded_course_ids": ["10"], "weekday_courses": ["10"]}))
+    assert overlap["errors"]["base"] == "overlapping_course_filters"
+    unknown = asyncio.run(f.async_step_schedule_courses({"weekday_courses": ["404"]}))
+    assert unknown["errors"]["base"] == "invalid_courses"
+
+
+def test_weekday_rules_can_be_removed_or_changed_to_global(flow_module):
+    f = weekday_flow(flow_module)
+    done = asyncio.run(f.async_step_schedule_courses({"excluded_course_ids": ["10"]}))
+    assert done["data"]["excluded_course_weekdays"] == {}
+    assert done["data"]["excluded_course_ids"] == ["10"]
+
+
+def test_initial_entry_weekday_rules_are_carried_into_options(flow_module):
+    f = setup_flow(flow_module)
+    f._entry.data.update(schedule_entry_id="account", schedule_student_id="child",
+                         excluded_course_weekdays={"10": ["mon"]})
+    asyncio.run(f.async_step_init({"use_schedule_service": True}))
+    form = asyncio.run(f.async_step_schedule_child({"student": "account:child"}))
+    assert form["data_schema"]({})["weekday_courses"] == ["10"]
+
+
+def test_new_setup_supports_weekday_course_without_previous_rule(flow_module):
+    f = flow_module.Stundenplan24WeekConfigFlow()
+    f._schedule_pending = {}
+    f._schedule_student = {"days": [{"lessons": [{"course_id": "10", "subject": "Ku"}]}]}
+    f._finish_schedule = AsyncMock(return_value={"type": "create_entry"})
+    form = asyncio.run(f.async_step_schedule_courses({"weekday_courses": ["10"]}))
+    assert form["data_schema"]({}) == {"weekdays": []}
+    asyncio.run(f.async_step_schedule_weekdays({"weekdays": ["mon"]}))
+    assert f._schedule_pending["excluded_course_weekdays"] == {"10": ["mon"]}
+    f._finish_schedule.assert_awaited_once()
+
+
+def test_weekday_translations_are_complete_and_have_no_duplicate_keys():
+    def unique_pairs(pairs):
+        assert len(dict(pairs)) == len(pairs)
+        return dict(pairs)
+
+    root = Path(__file__).resolve().parents[1] / "custom_components/stundenplan24_week"
+    translations = [json.loads((root / file).read_text(encoding="utf-8"),
+                               object_pairs_hook=unique_pairs)
+                    for file in ("strings.json", "translations/de.json")]
+    for translations_for_file in translations:
+        for flow in ("config", "options"):
+            section = translations_for_file[flow]
+            assert "weekday_courses" in section["step"]["schedule_courses"]["data"]
+            assert "{course}" in section["step"]["schedule_weekdays"]["description"]
+            assert "weekdays" in section["step"]["schedule_weekdays"]["data"]
+            for error in ("invalid_weekdays", "overlapping_course_filters"):
+                assert section["error"][error]
 
 
 def test_saved_excluded_course_survives_empty_week(flow_module):

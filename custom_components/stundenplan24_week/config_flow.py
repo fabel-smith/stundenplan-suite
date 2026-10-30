@@ -8,7 +8,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import DOMAIN
-from .schulmanager_schedule import course_options, read_schedules
+from .schulmanager_schedule import WEEKDAYS, WEEKDAY_LABELS, course_options, course_weekdays, read_schedules
 
 CONF_SCHOOL_ID = "school_id"
 CONF_TARGET = "target"
@@ -49,6 +49,7 @@ class ScheduleFlowMixin:
                         and self._schedule_pending.get("schedule_student_id") == selected["student_id"])
                 if not same:
                     self._schedule_pending["excluded_course_ids"] = []
+                    self._schedule_pending["excluded_course_weekdays"] = {}
                 self._schedule_pending.update(
                     use_schedule_service=True, schedule_entry_id=selected["config_entry_id"],
                     schedule_student_id=selected["student_id"])
@@ -62,19 +63,53 @@ class ScheduleFlowMixin:
 
     async def async_step_schedule_courses(self, user_input=None):
         saved = self._schedule_pending.get("excluded_course_ids", [])
-        choices = course_options(self._schedule_student, saved)
+        rules = course_weekdays(self._schedule_pending)
+        choices = course_options(self._schedule_student, [*saved, *rules])
         errors = {}
         if user_input is not None:
             values = user_input.get("excluded_course_ids", [])
-            if not set(values) <= {c["value"] for c in choices}:
+            weekday_courses = user_input.get("weekday_courses", [])
+            if not (set(values) | set(weekday_courses)) <= {c["value"] for c in choices}:
                 errors["base"] = "invalid_courses"
+            elif set(values) & set(weekday_courses):
+                errors["base"] = "overlapping_course_filters"
             else:
                 self._schedule_pending["excluded_course_ids"] = values
+                self._weekday_queue = list(dict.fromkeys(weekday_courses))
+                self._weekday_rules = {}
+                if self._weekday_queue:
+                    return await self.async_step_schedule_weekdays()
+                self._schedule_pending["excluded_course_weekdays"] = {}
                 return await self._finish_schedule()
-        schema = vol.Schema({vol.Optional("excluded_course_ids", default=saved):
+        schema = vol.Schema({vol.Optional(key, default=default):
             selector.SelectSelector(selector.SelectSelectorConfig(
-                options=choices, multiple=True, mode=selector.SelectSelectorMode.LIST))})
+                options=choices, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN))
+            for key, default in (("excluded_course_ids", saved), ("weekday_courses", list(rules)))})
         return self.async_show_form(step_id="schedule_courses", data_schema=schema, errors=errors)
+
+    async def async_step_schedule_weekdays(self, user_input=None):
+        course = self._weekday_queue[0]
+        errors = {}
+        saved = course_weekdays(self._schedule_pending).get(course, [])
+        if user_input is not None:
+            days = user_input.get("weekdays", [])
+            if not isinstance(days, list) or not days or any(day not in WEEKDAYS for day in days):
+                errors["base"] = "invalid_weekdays"
+            else:
+                self._weekday_rules[course] = [day for day in WEEKDAYS if day in days]
+                self._weekday_queue.pop(0)
+                if self._weekday_queue:
+                    return await self.async_step_schedule_weekdays()
+                self._schedule_pending["excluded_course_weekdays"] = self._weekday_rules
+                return await self._finish_schedule()
+        label = next(option["label"] for option in course_options(self._schedule_student, [course])
+                     if option["value"] == course)
+        schema = vol.Schema({vol.Required("weekdays", default=saved):
+            selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[{"value": day, "label": label} for day, label in zip(WEEKDAYS, WEEKDAY_LABELS)],
+                multiple=True, mode=selector.SelectSelectorMode.LIST))})
+        return self.async_show_form(step_id="schedule_weekdays", data_schema=schema, errors=errors,
+                                    description_placeholders={"course": label})
 
 
 class Stundenplan24WeekConfigFlow(ScheduleFlowMixin, config_entries.ConfigFlow, domain=DOMAIN):
@@ -175,7 +210,7 @@ class OptionsFlowHandler(ScheduleFlowMixin, config_entries.OptionsFlow):
         if user_input is not None:
             if self._entry.data.get("provider") == "schulmanager" and user_input.get("use_schedule_service"):
                 self._schedule_pending = {**self._entry.options, **user_input}
-                for key in ("schedule_entry_id", "schedule_student_id", "excluded_course_ids"):
+                for key in ("schedule_entry_id", "schedule_student_id", "excluded_course_ids", "excluded_course_weekdays"):
                     if key not in self._schedule_pending and key in self._entry.data:
                         self._schedule_pending[key] = self._entry.data[key]
                 return await self.async_step_schedule_child()

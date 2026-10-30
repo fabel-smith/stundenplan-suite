@@ -28,8 +28,13 @@
       },
       "schedule_courses": {
         "title": "Nicht benötigte Kurse ausblenden",
-        "description": "Standardmäßig bleiben alle Kurse sichtbar. Markiere nur Kurse, an denen dein Kind nicht teilnimmt. Die Auswahl gilt anhand der Kurskennung, nicht anhand des Raums. Sonderstunden ohne Kurskennung bleiben vorsichtshalber erhalten. Ohne geladene Stunden können noch keine neuen Kurse angeboten werden.",
-        "data": {"excluded_course_ids": "Diese Kurse ausblenden"}
+        "description": "Wähle Kurse entweder für alle Tage oder nur für bestimmte Wochentage aus. Die Wochentage legst du anschließend je Kurs fest. Nicht ausgewählte Kurse bleiben sichtbar. Sonderstunden ohne Kurskennung bleiben erhalten. Gespeicherte Kurse bleiben auch während der Ferien auswählbar.",
+        "data": {"excluded_course_ids": "An allen Tagen ausblenden", "weekday_courses": "Nur an bestimmten Wochentagen ausblenden"}
+      },
+      "schedule_weekdays": {
+        "title": "Wochentage zum Ausblenden",
+        "description": "{course}\n\nAn welchen Tagen soll dieser Kurs ausgeblendet werden? An allen anderen Tagen bleibt er sichtbar. Wähle mindestens einen Tag. Zum Entfernen der Regel den Kurs bei der nächsten Konfiguration aus der Wochentagsauswahl entfernen.",
+        "data": {"weekdays": "An diesen Wochentagen ausblenden"}
       },
       "schulmanager_schedule": {
         "title": "Schulmanager: strukturierter Stundenplan",
@@ -54,6 +59,8 @@
     "error": {
       "invalid_student": "Bitte ein verfügbares Kind auswählen.",
       "invalid_courses": "Bitte nur angebotene Kurse auswählen.",
+      "overlapping_course_filters": "Bitte einen Kurs entweder für alle Tage oder für bestimmte Wochentage auswählen, nicht in beiden Listen.",
+      "invalid_weekdays": "Bitte mindestens einen gültigen Wochentag auswählen.",
       "missing_required": "Bitte einen Namen und alle Pflichtfelder angeben.",
       "target_in_use": "Dieser Anzeigename wird bereits verwendet. Bitte einen anderen Namen wählen."
     },
@@ -70,6 +77,8 @@
     "error": {
       "invalid_student": "Bitte ein verfügbares Kind auswählen.",
       "invalid_courses": "Bitte nur angebotene Kurse auswählen.",
+      "overlapping_course_filters": "Bitte einen Kurs entweder für alle Tage oder für bestimmte Wochentage auswählen, nicht in beiden Listen.",
+      "invalid_weekdays": "Bitte mindestens einen gültigen Wochentag auswählen.",
       "legacy_sources_required": "Bitte Kalender sowie Heute-, Morgen- und Wochensensor angeben."
     },
     "step": {
@@ -80,8 +89,13 @@
       },
       "schedule_courses": {
         "title": "Nicht benötigte Kurse ausblenden",
-        "description": "Standardmäßig bleiben alle Kurse sichtbar. Markiere nur Kurse, an denen dein Kind nicht teilnimmt. Die Auswahl gilt anhand der Kurskennung, nicht anhand des Raums. Sonderstunden ohne Kurskennung bleiben vorsichtshalber erhalten. Ohne geladene Stunden können noch keine neuen Kurse angeboten werden.",
-        "data": {"excluded_course_ids": "Diese Kurse ausblenden"}
+        "description": "Wähle Kurse entweder für alle Tage oder nur für bestimmte Wochentage aus. Die Wochentage legst du anschließend je Kurs fest. Nicht ausgewählte Kurse bleiben sichtbar. Sonderstunden ohne Kurskennung bleiben erhalten. Gespeicherte Kurse bleiben auch während der Ferien auswählbar.",
+        "data": {"excluded_course_ids": "An allen Tagen ausblenden", "weekday_courses": "Nur an bestimmten Wochentagen ausblenden"}
+      },
+      "schedule_weekdays": {
+        "title": "Wochentage zum Ausblenden",
+        "description": "{course}\n\nAn welchen Tagen soll dieser Kurs ausgeblendet werden? An allen anderen Tagen bleibt er sichtbar. Wähle mindestens einen Tag. Zum Entfernen der Regel den Kurs bei der nächsten Konfiguration aus der Wochentagsauswahl entfernen.",
+        "data": {"weekdays": "An diesen Wochentagen ausblenden"}
       },
       "schulmanager_options": {
         "title": "Schulmanager-Optionen",

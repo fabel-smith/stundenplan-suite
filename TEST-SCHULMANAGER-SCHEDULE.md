@@ -4,7 +4,7 @@ Fuer den gemeinsamen Praxistest: [Kurze Testanleitung](PRERELEASE_TEST.md).
 
 Voraussetzung: Schulmanager Online mit der Aktion `schulmanager.get_schedule`
 (getesteter Vertrag: v0.13.0b4, schema_version 1). Die Testkombination ist
-Suite v0.4.0b1 mit Card v3.11.0-beta.1; kein regulaeres Release.
+Suite v0.4.0b2 mit Card v3.11.0-beta.1; kein regulaeres Release.
 
 ## Bestehende Einrichtung umstellen
 

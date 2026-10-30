@@ -6,7 +6,7 @@ Bitte vorher ein HA-Backup erstellen. Die stabile Nutzung muss nicht umgestellt 
 ## Passende Versionen
 
 - Schulmanager Online: **v0.13.0b4**
-- Stundenplan Suite: **v0.4.0b1**
+- Stundenplan Suite: **v0.4.0b2**
 - Stundenplan Card: **v3.11.0-beta.1**
 
 Die neue Kursauswahl benoetigt alle drei passenden Staende. Bestehende Quellen
@@ -43,6 +43,28 @@ sollen weiterhin unveraendert funktionieren.
   Daten duerfen nicht als sicher unterrichtsfrei erscheinen.
 - **Optional:** Ferienkalender, Kalenderhinweise sowie eine bisherige manuelle,
   JSON- oder Stundenplan24-Karte gegenpruefen. Ferien blenden Unterricht nicht aus.
+
+## Neu in b2: Kurs nur an bestimmten Wochentagen ausblenden
+
+Bei bereits eingerichteter Testkombination nur die Suite auf **v0.4.0b2**
+aktualisieren und HA neu starten. Karte und Schulmanager bleiben unveraendert.
+
+1. Suite **Konfigurieren** oeffnen, neue Schnittstelle und Kind/Konto bestaetigen.
+2. Den gewuenschten Kurs nicht unter **An allen Tagen ausblenden** markieren.
+   Falls er dort bereits steht, aus dieser Liste entfernen.
+3. Unter **Nur an bestimmten Wochentagen ausblenden** den Kurs hinzufuegen.
+4. Im naechsten Schritt beispielsweise nur **Montag** markieren und speichern.
+5. In einer geladenen Woche pruefen: Der Kurs fehlt montags, bleibt aber dienstags
+   und an anderen nicht ausgewaehlten Tagen erhalten. Andere Parallelkurse bleiben.
+6. Einstellungen erneut oeffnen und nach einem Neustart pruefen. Zum Aufheben
+   der Regel den Kurs wieder aus der Wochentagsliste entfernen und speichern.
+
+Bestehende Ausschluesse gelten weiterhin an allen Tagen. Keine neue Regel wird
+automatisch eingerichtet. Sonderstunden ohne Kurskennung bleiben sichtbar.
+In Ferien oder bei fehlenden Daten ist das sichtbare Ergebnis erst pruefbar,
+sobald eine Unterrichtswoche geladen ist. Die Wochenwahl der Suite reicht
+weiterhin von der vorigen bis zur naechsten Woche, nicht bis zur uebernaechsten.
+Vor einem Rueckwechsel auf b1 die Wochentagsregeln entfernen; b1 wertet sie nicht aus.
 
 ## Rueckmeldung
 

@@ -120,6 +120,73 @@ def test_course_exclusion_not_subject_room_filter():
     assert len(result(s)["lessons"]) == 3
 
 
+def test_weekday_filter_keeps_tuesday_and_parallel_courses():
+    s = student([])
+    for offset in (0, 1, 7, 8):
+        day = s["days"][offset]["date"]
+        s["days"][offset]["lessons"] = [lesson(
+            course, id=f"{day}-{period}-{course}", date=day, period=period,
+            subject="Ku" if course == "10" else "Ev",
+            start=f"{day}T11:30:00+01:00", end=f"{day}T12:15:00+01:00")
+            for course in ("10", "20") for period in ("5", "6")]
+    config = {"excluded_course_weekdays": {"10": ["mon"]}}
+    data = result(s, config)
+    art = [item for item in data["lessons"] if item["course_id"] == "10"]
+    assert {(item["date"], item["period"]) for item in art} == {
+        (s["days"][offset]["date"], period) for offset in (1, 8) for period in ("5", "6")}
+    assert len([item for item in data["lessons"] if item["course_id"] == "20"]) == 8
+    assert len(s["days"][0]["lessons"]) == 4  # Source remains untouched.
+    attrs = compact_week_attributes(data)
+    assert attrs["meta"]["excluded_courses"][0]["weekdays"] == ["mon"]
+    assert "nur Montag" in attrs["meta"]["excluded_courses"][0]["label"]
+    assert data["daily"]["today"]["routine_ready"]
+
+
+def test_weekday_rules_compose_with_global_rules_and_keep_missing_course_metadata():
+    s = student([lesson(), lesson("20")])
+    config = {"excluded_course_ids": ["20"],
+              "excluded_course_weekdays": {"10": ["tue"], "99": ["fri", "mon"]}}
+    data = result(s, config)
+    assert [item["course_id"] for item in data["lessons"]] == ["10"]
+    courses = {item["id"]: item for item in data["meta"]["excluded_courses"]}
+    assert "weekdays" not in courses["20"]
+    assert courses["99"]["weekdays"] == ["mon", "fri"]
+    assert "Gespeicherter Kurs" in courses["99"]["label"]
+    assert "nur Montag, Freitag" in courses["99"]["label"]
+    config["excluded_course_ids"].append("10")
+    assert result(s, config)["lessons"] == []
+
+
+@pytest.mark.parametrize("days,warning", [(["mon"], True), (["tue"], False)])
+def test_weekday_filter_preserves_unknown_special_lessons(days, warning):
+    s = student([lesson(None, source_type="specialLesson")])
+    data = result(s, {"excluded_course_weekdays": {"10": days}})
+    assert len(data["lessons"]) == 1
+    assert ("special_lesson_without_course" in data["meta"]["issues"]) is warning
+
+
+@pytest.mark.parametrize("rules", [[], {"10": []}, {"10": ["bad"]}, {"10": "mon"}])
+def test_invalid_weekday_rules_fail_instead_of_hiding_all_days(rules):
+    with pytest.raises(ValueError):
+        result(config={"excluded_course_weekdays": rules})
+
+
+def test_weekday_filter_uses_lesson_date_not_selected_week_or_current_day():
+    s = student([lesson()])
+    config = {"excluded_course_weekdays": {"10": ["mon"]}}
+    data = result(s, config, monday=DAY + timedelta(days=7), now=NOW + timedelta(days=1))
+    assert not data["lessons"]
+
+
+def test_weekend_weekday_rules():
+    s = student([])
+    day = s["days"][5]["date"]
+    s["days"][5]["lessons"] = [lesson(date=day, id=f"{day}-1",
+        start=f"{day}T08:00:00+01:00", end=f"{day}T08:45:00+01:00")]
+    assert len(result(s, {"excluded_course_weekdays": {"10": ["mon"]}})["lessons"]) == 1
+    assert not result(s, {"excluded_course_weekdays": {"10": ["sat"]}})["lessons"]
+
+
 def test_special_without_course_is_never_guessed_away():
     special = lesson(None, status="changed", source_type="specialLesson", group="Gruppe 1")
     cancelled = lesson(status="cancelled", changes=["cancellation"])

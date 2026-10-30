@@ -9,6 +9,20 @@ from .schulmanager import add_missing_plan_breaks
 DOMAIN = "schulmanager"
 EVENT = "schulmanager_schedule_updated"
 MAX_AGE = timedelta(minutes=75)
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+WEEKDAY_LABELS = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+
+def course_weekdays(config):
+    """Validate saved rules rather than silently widening an exclusion."""
+    rules = config.get("excluded_course_weekdays", {})
+    if not isinstance(rules, dict):
+        raise ValueError("Invalid weekday course filters")
+    for course, days in rules.items():
+        if (not isinstance(course, str) or not course or not isinstance(days, list)
+                or not days or any(day not in WEEKDAYS for day in days)):
+            raise ValueError("Invalid weekday course filter")
+    return rules
 
 
 async def read_schedules(hass, **filters):
@@ -94,6 +108,7 @@ def normalize_schedule(student, monday, now, config):
         days = []
     lessons, loaded, empty, seen = [], set(), set(), set()
     excluded = {str(value) for value in config.get("excluded_course_ids", [])}
+    weekday_rules = course_weekdays(config)
     issues = []
     ambiguous = set()
     if not fresh:
@@ -101,6 +116,8 @@ def normalize_schedule(student, monday, now, config):
     for day in days:
         day_id = day["date"]
         parsed_day = date.fromisoformat(day_id)
+        excluded_today = excluded | {course for course, weekdays in weekday_rules.items()
+                                     if WEEKDAYS[parsed_day.weekday()] in weekdays}
         if day_id in seen or not first <= parsed_day <= last:
             raise ValueError("Doppelter Tag oder Tag außerhalb des Quellzeitraums")
         seen.add(day_id)
@@ -117,10 +134,10 @@ def normalize_schedule(student, monday, now, config):
             if item.get("date") != day_id or not item.get("id"):
                 raise ValueError("Unterricht ohne eindeutiges Datum oder ID")
             course = item.get("course_id")
-            if course is not None and str(course) in excluded:
+            if course is not None and str(course) in excluded_today:
                 continue
             # Never infer membership of a special lesson from subject/room/group.
-            if excluded and course is None and item.get("source_type") == "specialLesson":
+            if excluded_today and course is None and item.get("source_type") == "specialLesson":
                 issues.append("special_lesson_without_course")
                 ambiguous.add(day_id)
             start, end = _time(item.get("start"), day_id), _time(item.get("end"), day_id)
@@ -165,13 +182,21 @@ def normalize_schedule(student, monday, now, config):
         target=config.get("target", "Stundenplan"), fetched_at=stamp,
         verified_days=(loaded - ambiguous) if fresh else set(), issues=issues,
         show_room=config.get("show_room", True), show_teacher=config.get("show_teacher", False))
+    excluded_metadata = []
+    for option in course_options(student, excluded | set(weekday_rules)):
+        course = option["value"]
+        if course in excluded:
+            excluded_metadata.append({"id": course, "label": option["label"]})
+        elif course in weekday_rules:
+            selected = [day for day in WEEKDAYS if day in weekday_rules[course]]
+            names = ", ".join(WEEKDAY_LABELS[WEEKDAYS.index(day)] for day in selected)
+            excluded_metadata.append({"id": course, "label": f"{option['label']} - nur {names}",
+                                      "weekdays": selected})
     result["meta"].update({
         "source_updated_at": stamp, "source_status": status, "source_interface": "get_schedule",
         "coverage": "reported" if fresh and weekdays <= loaded else "stale" if not fresh else "partial",
         "loaded_days": sorted(loaded & weekdays),
-        "excluded_courses": [{"id": option["value"], "label": option["label"]}
-                             for option in course_options(student, excluded)
-                             if option["value"] in excluded],
+        "excluded_courses": excluded_metadata,
     })
     for summary in result["daily"].values():
         day_id = summary["date"]

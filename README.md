@@ -14,10 +14,10 @@ Sie verbindet **stundenplan24.de** oder die benutzerdefinierte Home-Assistant-In
 **Schulmanager Online** mit der Karte und stellt den Stundenplan in einem einheitlichen
 Sensorformat bereit.
 
-**Vorabversion v0.4.0b1 (nur zum freiwilligen Testen):**
+**Vorabversion v0.4.0b2 (nur zum freiwilligen Testen):**
 optionale direkte Schulmanager-Anbindung mit Kursauswahl, Fachwechsel-Vergleich
 für Card v3.11.0-beta.1 und Stundenplan24-Abruf im Hintergrund nach dem HA-Start.
-[Änderungen](RELEASE_NOTES_0.4.0b1.md) · [Kurze Testanleitung](PRERELEASE_TEST.md).
+[Änderungen](RELEASE_NOTES_0.4.0b2.md) · [Kurze Testanleitung](PRERELEASE_TEST.md).
 
 ➡️ **Anzeige & Visualisierung** erfolgt über die **stundenplan-card**:  
 https://github.com/fabel-smith/stundenplan-card
@@ -132,7 +132,7 @@ Voraussetzung ist die eingerichtete benutzerdefinierte Integration
 Die Suite benötigt keine zusätzlichen Schulmanager-Zugangsdaten, sondern liest die
 bereits in Home Assistant vorhandenen Entitäten.
 
-**Optional im Teststand Suite v0.4.0b1:** Die neue Anbindung liest stattdessen die Aktion
+**Optional im Teststand Suite v0.4.0b2:** Die neue Anbindung liest stattdessen die Aktion
 `schulmanager.get_schedule`. Sie wurde mit **Schulmanager Online v0.13.0b4**
 getestet. Diese Vorabversion muss bei Bedarf bewusst über HACS gewählt werden;
 für bestehende Einrichtungen ist kein Wechsel nötig.
