@@ -6,8 +6,8 @@ Bitte vorher ein HA-Backup erstellen. Die stabile Nutzung muss nicht umgestellt 
 ## Passende Versionen
 
 - Schulmanager Online: **v0.13.0b4**
-- Stundenplan Suite: **v0.4.0b2**
-- Stundenplan Card: **v3.11.0-beta.1**
+- Stundenplan Suite: **v0.4.0b3**
+- Stundenplan Card: **v3.11.0-beta.2**
 
 Die neue Kursauswahl benoetigt alle drei passenden Staende. Bestehende Quellen
 werden nicht automatisch umgestellt. Manuelle Plaene, JSON und Stundenplan24
@@ -46,8 +46,7 @@ sollen weiterhin unveraendert funktionieren.
 
 ## Neu in b2: Kurs nur an bestimmten Wochentagen ausblenden
 
-Bei bereits eingerichteter Testkombination nur die Suite auf **v0.4.0b2**
-aktualisieren und HA neu starten. Karte und Schulmanager bleiben unveraendert.
+Seit **v0.4.0b2** verfuegbar und in b3 weiterhin enthalten.
 
 1. Suite **Konfigurieren** oeffnen, neue Schnittstelle und Kind/Konto bestaetigen.
 2. Den gewuenschten Kurs nicht unter **An allen Tagen ausblenden** markieren.
@@ -65,6 +64,26 @@ In Ferien oder bei fehlenden Daten ist das sichtbare Ergebnis erst pruefbar,
 sobald eine Unterrichtswoche geladen ist. Die Wochenwahl der Suite reicht
 weiterhin von der vorigen bis zur naechsten Woche, nicht bis zur uebernaechsten.
 Vor einem Rueckwechsel auf b1 die Wochentagsregeln entfernen; b1 wertet sie nicht aus.
+
+## Neu in b3 und Card beta.2: Wochenwechsel am Wochenende
+
+1. Beide oben genannten Vorabversionen installieren, HA neu starten und das
+   Dashboard vollstaendig neu laden. Schulmanager Online v0.13.0b4 kann bleiben.
+2. In einer Karte mit dem Suite-Wochensensor **Ansicht & Rolling > Ganze Woche**
+   oeffnen. Unter **Automatisch zur naechsten Woche** **Ab Samstag** oder
+   **Ab Sonntag** waehlen. Ohne Auswahl bleibt es bei **Erst am Montag**.
+3. Die Wochenwahl auf **0** stellen. Eine manuell gewaehlte andere Woche hat Vorrang.
+4. Am ausgewaehlten Wochenendtag muessen Datum und Unterricht gemeinsam zur
+   kommenden Woche wechseln. Auch **Ab heute (rolling)** gegenpruefen.
+5. Wochentags- und Kursfilter muessen weiter gelten. Fehlende Unterrichtsdaten
+   bleiben leer und erhalten einen Hinweis, statt alte Daten zu uebernehmen.
+
+Die Karte liest nur bereits vorhandene Suite-Daten; der automatische Wechsel
+verstellt nicht die gemeinsame Wochenwahl und loest keine Schulserver-Abfrage aus.
+Mehrere Datenwochen liefert die neue Schulmanager-Schnittstelle. Alte Quellen
+koennen weiterhin nur ihre tatsaechlich geladene Woche bereitstellen.
+Die manuelle Wochenwahl bleibt bei -1 bis +1. Dieser Test erweitert sie noch
+nicht auf +2 und laedt keine zusaetzlichen Wochen bei Schulmanager nach.
 
 ## Rueckmeldung
 

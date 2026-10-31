@@ -182,6 +182,8 @@ def normalize_schedule(student, monday, now, config):
         target=config.get("target", "Stundenplan"), fetched_at=stamp,
         verified_days=(loaded - ambiguous) if fresh else set(), issues=issues,
         show_room=config.get("show_room", True), show_teacher=config.get("show_teacher", False))
+    # Internal cache only: adjacent-week data must not inflate recorder attributes.
+    result["view_loaded_days"] = sorted(loaded)
     excluded_metadata = []
     for option in course_options(student, excluded | set(weekday_rules)):
         course = option["value"]

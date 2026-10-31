@@ -15,6 +15,12 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    from .view import register_view_service
+    register_view_service(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up stundenplan24_week from a config entry."""
     coordinator = SuiteCoordinator(hass, entry)

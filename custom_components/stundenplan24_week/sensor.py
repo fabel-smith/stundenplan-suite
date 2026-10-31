@@ -71,6 +71,7 @@ class Stundenplan24WeekSensor(CoordinatorEntity[SPlanCoordinator], SensorEntity)
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         attrs = compact_week_attributes(data)
+        attrs["view_service"] = 1
         if self.coordinator.data is None:
             attrs["loading"] = True
             attrs["no_plan"] = False

@@ -1,7 +1,7 @@
 {
   "domain": "stundenplan24_week",
   "name": "Stundenplan Suite",
-  "version": "0.4.0b2",
+  "version": "0.4.0b3",
   "config_flow": true,
   "iot_class": "cloud_polling",
   "after_dependencies": [

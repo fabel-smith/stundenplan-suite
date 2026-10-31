@@ -1,0 +1,15 @@
+get_view:
+  name: Datumsgenaue Kartenansicht
+  description: Liest vorhandene Daten, ohne die gemeinsame Wochenauswahl zu veraendern.
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: stundenplan24_week
+          domain: sensor
+    dates:
+      required: true
+      example: ["2026-11-02", "2026-11-03"]
+      selector:
+        object:
